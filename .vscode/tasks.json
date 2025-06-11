@@ -1,0 +1,25 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"args": [
+				"install"
+			],
+			"command": "npm",
+			"label": "Install Dependencies",
+			"type": "shell"
+		},
+		{
+			"args": [
+				"run",
+				"dev"
+			],
+			"command": "npm",
+			"label": "Start Dev Server",
+			"type": "shell",
+			"group": "build",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
