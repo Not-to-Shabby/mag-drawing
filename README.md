@@ -1,160 +1,171 @@
-# Mag-Drawing
+# Mag-Drawing - Travel Planning Whiteboard
 
-A modern whiteboard planner designed to help users organize their travel plans with an intuitive drawing interface.
+A collaborative travel planning application with interactive whiteboard functionality, built with Next.js 15, React 19, and Supabase.
 
-## Tech Stack
+## 🚀 Live Demo
 
-- **Frontend**: React with Next.js 14 (App Router)
-- **UI Library**: shadcn/ui with Tailwind CSS
-- **Backend**: Next.js API Routes
+**Production URL:** https://drawing-plan.vercel.app
+
+## ✨ Features
+
+- 🎨 **Interactive Whiteboard**: Draw paths, routes, and annotations with color picker
+- 📍 **Destination Markers**: Add locations with notes and coordinates
+- 🔗 **Token-Based Sharing**: Share plans via unique URLs without authentication
+- 💾 **Auto-Save**: Automatic persistence to Supabase database
+- 📱 **Responsive Design**: Works on desktop and mobile devices
+- 🔄 **Offline Mode**: Graceful fallback when database is unavailable
+- 🎯 **Real-Time Collaboration**: Multiple users can work on the same plan
+
+## 🛠️ Technology Stack
+
+- **Framework**: Next.js 15.3.3 with App Router
+- **Frontend**: React 19, TypeScript 5.8.3
+- **Styling**: Tailwind CSS 4.1.8, shadcn/ui components
 - **Database**: Supabase (PostgreSQL)
 - **Deployment**: Vercel
-- **Language**: TypeScript
+- **Icons**: Lucide React
+- **Canvas**: HTML5 Canvas API
 
-## Features
-
-- Interactive whiteboard drawing interface
-- Add and remove destinations with visual markers
-- Create timeline for trips with drag-and-drop functionality
-- Add notes and important information for each destination
-- **URL-based sharing** - Share plans via unique tokens (no authentication required)
-- Real-time collaboration (planned)
-- Export plans as images or PDFs (planned)
-
-## Getting Started
-
-First, install the dependencies:
-
-```bash
-npm install
-```
-
-Set up your environment variables by creating a `.env.local` file:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-Then, run the development server:
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Database Setup
-
-**📋 Complete Setup Guide**: See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for detailed instructions.
-
-**Quick Setup:**
-1. Create a new project on [Supabase](https://supabase.com)
-2. Copy your project URL and anon key to `.env.local`
-3. Run the SQL schema from `database/schema.sql`
-4. Restart your development server
-
-The database includes:
-- **Token-based access** - No authentication required
-- **Plans table** - Travel plans with unique tokens
-- **Destinations table** - Destination markers with coordinates
-- **Drawings table** - Canvas drawings as JSON paths
-- **Public access policies** - Anyone with token can edit
-
-## How URL Sharing Works
-
-- Each travel plan has a unique token (e.g., `abc123def456`)
-- Plans are accessed via URLs like `/plan/abc123def456`
-- Anyone with the URL can view and edit the plan
-- No user accounts or authentication required
-- Perfect for collaborative travel planning
-
-## Development
-
-You can start editing the page by modifying `app/plan/[token]/page.tsx`. The page auto-updates as you edit the file.
-
-## Project Structure
+## 🏗️ Architecture
 
 ```
-app/
-├── page.tsx                 # Landing page (redirects to new plan)
-├── plan/[token]/page.tsx    # Dynamic route for plan tokens
-├── api/plans/route.ts       # API for plan creation
-└── ...
-components/
-├── whiteboard-planner.tsx   # Main whiteboard component
-└── ui/                      # shadcn/ui components
-lib/
-├── database.ts              # Database utility functions
-└── supabase.ts              # Supabase client
-database/
-└── schema.sql               # Database schema
+Next.js App Router Structure:
+├── app/
+│   ├── page.tsx              # Homepage with auto-redirect
+│   ├── layout.tsx            # Root layout and metadata
+│   ├── globals.css           # Global styles
+│   ├── plan/[token]/         # Dynamic routes for plan sharing
+│   └── api/                  # API endpoints
+├── components/
+│   ├── whiteboard-planner.tsx # Main interactive component
+│   └── ui/                   # shadcn/ui components
+├── lib/
+│   ├── database.ts           # Supabase operations
+│   ├── supabase.ts           # Client configuration
+│   └── utils.ts              # Utility functions
+└── database/
+    └── schema.sql            # PostgreSQL schema
 ```
 
-## Usage
+## 🚀 Quick Start
 
-1. Visit the root URL to create a new travel plan
-2. You'll be redirected to `/plan/{unique-token}`
-3. Use the drawing tools to sketch your travel route
-4. Click "Add Place" to add destination markers
-5. Click "Share Plan" to get a shareable URL
-6. Anyone with the URL can view and edit the plan
+### Prerequisites
 
-## Current Status
+- Node.js 18+ 
+- npm or yarn
+- Supabase account (optional for offline mode)
 
-🚀 **Ready for Production** - Full Supabase integration completed!
+### Installation
 
-### ✅ What's Working:
-- **Token-based plan sharing** - Unique URLs for each travel plan
-- **Database persistence** - All data saves to Supabase automatically
-- **Real-time drawing** - Interactive canvas with multiple colors
-- **Destination management** - Add, edit, and remove travel stops
-- **Auto-save functionality** - Drawings and destinations save automatically
-- **Editable plan titles** - Click to edit plan names
-- **Share functionality** - Copy URLs to clipboard for sharing
-
-### 🎯 **Features Implemented:**
-- Interactive whiteboard with drawing tools
-- Destination markers with notes and coordinates
-- URL-based sharing (no authentication required)
-- Database persistence via Supabase
-- Real-time auto-save
-- Plan title editing
-- Token-based access control
-- Clean, modern UI with shadcn/ui components
-
-## Deployment
-
-### Deploy to Vercel (Recommended)
-
-1. **Push to GitHub**:
+1. **Clone the repository**
    ```bash
-   git add .
-   git commit -m "Initial Mag-Drawing setup"
-   git push origin main
+   git clone https://github.com/YOUR_USERNAME/mag-drawing.git
+   cd mag-drawing
    ```
 
-2. **Connect to Vercel**:
-   - Go to [vercel.com](https://vercel.com)
-   - Import your GitHub repository
-   - Vercel will auto-detect Next.js settings
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-3. **Add Environment Variables**:
-   - In Vercel dashboard, go to Settings > Environment Variables
-   - Add the same variables from your `.env.local`:
-     - `NEXT_PUBLIC_SUPABASE_URL`
-     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+3. **Environment Setup** (Optional - for database features)
+   ```bash
+   cp .env.example .env.local
+   ```
+   
+   Add your Supabase credentials:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
 
-4. **Deploy**: Click "Deploy" and your app will be live!
+4. **Database Setup** (Optional)
+   - Create a new Supabase project
+   - Run the SQL schema from `database/schema.sql` in the SQL Editor
+   - Enable Row Level Security (RLS) policies
 
-### Other Deployment Options
-- **Netlify**: Similar process, supports Next.js
-- **Railway**: Good for full-stack apps
-- **DigitalOcean App Platform**: Scalable hosting option
+5. **Run Development Server**
+   ```bash
+   npm run dev
+   ```
 
-### Environment Variables for Production
-Make sure to set these in your hosting platform:
-```bash
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
-```
+6. **Open in Browser**
+   Navigate to `http://localhost:3000`
+
+## 📦 Deployment
+
+### Vercel (Recommended)
+
+1. **Install Vercel CLI**
+   ```bash
+   npm i -g vercel
+   ```
+
+2. **Deploy**
+   ```bash
+   vercel --prod
+   ```
+
+3. **Configure Environment Variables**
+   Add your Supabase credentials in the Vercel dashboard.
+
+### Other Platforms
+
+The application can be deployed to any platform that supports Next.js:
+- Netlify
+- Railway
+- Render
+- AWS Amplify
+
+## 🎯 Usage
+
+1. **Create a Plan**: Visit the homepage to automatically generate a new plan
+2. **Draw on Canvas**: Use the drawing tools to sketch routes and annotations
+3. **Add Destinations**: Click on the canvas to add location markers with notes
+4. **Share Plans**: Copy the URL to share with collaborators
+5. **Collaborative Planning**: Multiple users can access the same plan via the shared URL
+
+## 🔧 API Endpoints
+
+- `GET /api/health` - Health check endpoint
+- `POST /api/plans` - Create new plan token
+
+## 🗄️ Database Schema
+
+The application uses three main tables:
+- `plans` - Travel plan metadata
+- `destinations` - Location markers with coordinates
+- `drawings` - Canvas drawing paths and strokes
+
+See `database/schema.sql` for complete schema definition.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit changes: `git commit -am 'Add feature'`
+4. Push to branch: `git push origin feature-name`
+5. Submit a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🛟 Support
+
+- **Issues**: Report bugs via GitHub Issues
+- **Documentation**: See `/docs` folder for detailed guides
+- **Live Demo**: https://drawing-plan.vercel.app
+
+## 🔮 Roadmap
+
+- [ ] Real-time collaboration with WebSockets
+- [ ] Export plans to PDF/PNG
+- [ ] Plan templates and themes
+- [ ] Mobile app version
+- [ ] Integration with mapping services
+- [ ] User authentication (optional)
+
+---
+
+**Built with ❤️ for collaborative travel planning**
