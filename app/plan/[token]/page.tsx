@@ -1,15 +1,17 @@
 import WhiteboardPlanner from "../../../components/whiteboard-planner";
 
 interface PlanPageProps {
-  params: {
+  params: Promise<{
     token: string;
-  };
+  }>;
 }
 
-export default function PlanPage({ params }: PlanPageProps) {
+export default async function PlanPage({ params }: PlanPageProps) {
+  const { token } = await params;
+  
   return (
     <main className="h-screen w-full overflow-hidden">
-      <WhiteboardPlanner token={params.token} />
+      <WhiteboardPlanner token={token} />
     </main>
   );
 }

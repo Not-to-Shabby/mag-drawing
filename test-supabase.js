@@ -1,7 +1,7 @@
 // Test Supabase connection
 // Run this file to test your Supabase setup
 
-import { supabase } from './lib/supabase';
+import { supabase } from './lib/supabase.ts';
 
 async function testConnection() {
   try {
