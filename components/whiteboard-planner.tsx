@@ -8,7 +8,6 @@ import { Textarea } from './ui/textarea';
 import { PlusCircle, MapPin, Calendar, Trash2, Palette, Share2, Copy, Save } from 'lucide-react';
 import { 
   getPlanByToken, 
-  createPlan, 
   updatePlan, 
   getDestinations, 
   createDestination, 
@@ -199,32 +198,48 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     }
     setIsDrawing(false);
   };
-
   const addDestination = async (name: string, notes: string) => {
     try {
-      if (!planExists) return;
-      
-      const plan = await getPlanByToken(token);
-      const newDest = await createDestination(
-        plan.id,
-        name,
-        newDestinationPos.x,
-        newDestinationPos.y,
-        notes
-      );
-      
+      // Always add destination to local state for immediate UI update
+      const tempId = `temp-${Date.now()}`;
       const newDestination: Destination = {
-        id: newDest.id,
-        name: newDest.name,
-        x: newDest.x_position,
-        y: newDest.y_position,
-        notes: newDest.notes || '',
-        color: newDest.color,
+        id: tempId,
+        name,
+        x: newDestinationPos.x,
+        y: newDestinationPos.y,
+        notes,
+        color: '#ef4444'
       };
       
       setDestinations([...destinations, newDestination]);
       setShowAddDestination(false);
-      setLastSaved(new Date());
+      
+      // Try to save to database if available
+      if (planExists) {
+        try {
+          const plan = await getPlanByToken(token);
+          if (plan) {
+            const savedDest = await createDestination(
+              plan.id,
+              name,
+              newDestinationPos.x,
+              newDestinationPos.y,
+              notes
+            );
+            
+            // Update the destination with the real ID from database
+            setDestinations(prev => prev.map(d => 
+              d.id === tempId ? { ...d, id: savedDest.id } : d
+            ));
+            setLastSaved(new Date());
+            console.log('Destination saved to database');
+          }
+        } catch (error) {
+          console.log('Could not save destination to database - keeping local copy:', error);
+        }
+      } else {
+        console.log('Working in offline mode - destination saved locally only');
+      }
     } catch (error) {
       console.error('Error adding destination:', error);
     }
@@ -254,12 +269,18 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       console.error('Error clearing canvas:', error);
     }
   };
-
   const saveDrawings = async () => {
     try {
-      if (!planExists) return;
+      if (!planExists) {
+        console.log('Working in offline mode - drawings not saved to database');
+        return;
+      }
       
       const plan = await getPlanByToken(token);
+      if (!plan) {
+        console.log('Plan not found - working in offline mode');
+        return;
+      }
       
       // Clear existing drawings
       await deleteAllDrawings(plan.id);
@@ -275,8 +296,9 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       }
       
       setLastSaved(new Date());
+      console.log('Drawings saved successfully');
     } catch (error) {
-      console.error('Error saving drawings:', error);
+      console.log('Could not save drawings to database - working in offline mode:', error);
     }
   };
 
@@ -292,7 +314,6 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       console.error('Error updating plan title:', error);
     }
   };
-
   // Load plan data from database
   useEffect(() => {
     const loadPlan = async () => {
@@ -302,35 +323,43 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         // Try to get existing plan
         try {
           const plan = await getPlanByToken(token);
-          setPlanExists(true);
-          
-          // Load destinations
-          const dests = await getDestinations(plan.id);
-          setDestinations(dests.map(d => ({
-            id: d.id,
-            name: d.name,
-            x: d.x_position,
-            y: d.y_position,
-            notes: d.notes || '',
-            color: d.color
-          })));
-          
-          // Load drawings
-          const drawings = await getDrawings(plan.id);          setDrawings(drawings.map(d => ({
-            id: d.id,
-            points: d.path_data,
-            color: d.color,
-            width: d.stroke_width
-          })));
-          
-        } catch {
-          // Plan doesn't exist, create new one
-          await createPlan('Untitled Travel Plan', 'A new travel plan', token);
-          setPlanTitle('Untitled Travel Plan');
-          setPlanExists(true);
+          if (plan) {
+            setPlanTitle(plan.title || 'Untitled Travel Plan');
+            setPlanExists(true);
+            
+            // Load destinations
+            const dests = await getDestinations(plan.id);
+            if (dests && Array.isArray(dests)) {
+              setDestinations(dests.map(d => ({
+                id: d.id,
+                name: d.name,
+                x: d.x_position,
+                y: d.y_position,
+                notes: d.notes || '',
+                color: d.color
+              })));
+            }
+            
+            // Load drawings
+            const drawings = await getDrawings(plan.id);
+            if (drawings && Array.isArray(drawings)) {
+              setDrawings(drawings.map(d => ({
+                id: d.id,
+                points: d.path_data,
+                color: d.color,
+                width: d.stroke_width
+              })));
+            }
+          }        } catch {
+          console.log('Plan not found or database not ready, creating offline plan');
+          // Plan doesn't exist or database not ready, work in offline mode
+          setPlanTitle('Untitled Travel Plan (Offline Mode)');
+          setPlanExists(false);
         }
       } catch (error) {
-        console.error('Error loading plan:', error);
+        console.log('Database connection issue, working in offline mode:', error);
+        setPlanTitle('Untitled Travel Plan (Offline Mode)');
+        setPlanExists(false);
       } finally {
         setIsLoading(false);
       }
