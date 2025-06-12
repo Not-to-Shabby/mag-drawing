@@ -1,4 +1,37 @@
 import { supabase } from './supabase';
+import { z } from 'zod';
+
+// Validation schemas
+const planSchema = z.object({
+  title: z.string().min(1).max(100),
+  description: z.string().max(1000),
+  token: z.string().min(10).max(50),
+});
+
+const destinationSchema = z.object({
+  name: z.string().min(1).max(100),
+  notes: z.string().max(500),
+  x_position: z.number().min(0).max(5000),
+  y_position: z.number().min(0).max(5000),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+});
+
+const drawingSchema = z.object({
+  path_data: z.array(z.object({
+    x: z.number(),
+    y: z.number()
+  })).min(1).max(1000),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  stroke_width: z.number().min(1).max(50),
+});
+
+// Sanitize input data
+function sanitizeInput(input: string): string {
+  return input
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove scripts
+    .replace(/[<>]/g, '') // Remove HTML tags
+    .trim();
+}
 
 export interface Plan {
   id: string;
@@ -38,38 +71,80 @@ const generateToken = () => {
 
 // Plan operations
 export const createPlan = async (title: string, description?: string, existingToken?: string) => {
-  const token = existingToken || generateToken();
-  const { data, error } = await supabase
-    .from('plans')
-    .insert([{ token, title, description }])
-    .select()
-    .single();
+  try {
+    const token = existingToken || generateToken();
+    
+    // Validate and sanitize inputs
+    const validatedData = planSchema.parse({
+      title: sanitizeInput(title),
+      description: description ? sanitizeInput(description) : '',
+      token: sanitizeInput(token),
+    });
+    
+    const { data, error } = await supabase
+      .from('plans')
+      .insert([{ 
+        token: validatedData.token, 
+        title: validatedData.title, 
+        description: validatedData.description 
+      }])
+      .select()
+      .single();
 
-  if (error) throw error;
-  return data as Plan;
+    if (error) throw error;
+    return data as Plan;
+  } catch (error) {
+    console.error('Database validation error:', error);
+    throw new Error('Invalid plan data');
+  }
 };
 
 export const getPlanByToken = async (token: string) => {
-  const { data, error } = await supabase
-    .from('plans')
-    .select('*')
-    .eq('token', token)
-    .single();
+  try {
+    // Validate token format
+    if (!token || token.length < 10 || token.length > 50) {
+      throw new Error('Invalid token format');
+    }
+    
+    const sanitizedToken = sanitizeInput(token);
+    
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .eq('token', sanitizedToken)
+      .single();
 
-  if (error) throw error;
-  return data as Plan;
+    if (error) throw error;
+    return data as Plan;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const updatePlan = async (id: string, updates: Partial<Omit<Plan, 'id' | 'token' | 'created_at'>>) => {
-  const { data, error } = await supabase
-    .from('plans')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
+  try {    // Validate and sanitize updates
+    const sanitizedUpdates: Partial<Pick<Plan, 'title' | 'description'>> = {};
+    if (updates.title) {
+      sanitizedUpdates.title = sanitizeInput(updates.title);
+    }
+    if (updates.description) {
+      sanitizedUpdates.description = sanitizeInput(updates.description);
+    }
+    
+    const { data, error } = await supabase
+      .from('plans')
+      .update({ ...sanitizedUpdates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
 
-  if (error) throw error;
-  return data as Plan;
+    if (error) throw error;
+    return data as Plan;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const deletePlan = async (token: string) => {
@@ -93,37 +168,94 @@ export const createDestination = async (
   notes?: string,
   color = '#ef4444'
 ) => {
-  const { data, error } = await supabase
-    .from('destinations')
-    .insert([{ plan_id, name, x_position, y_position, notes, color }])
-    .select()
-    .single();
+  try {
+    // Validate and sanitize inputs
+    const validatedData = destinationSchema.parse({
+      name: sanitizeInput(name),
+      notes: notes ? sanitizeInput(notes) : '',
+      x_position: Math.max(0, Math.min(5000, x_position)), // Clamp to safe range
+      y_position: Math.max(0, Math.min(5000, y_position)), // Clamp to safe range
+      color: color.match(/^#[0-9A-Fa-f]{6}$/) ? color : '#ef4444', // Validate color format
+    });
 
-  if (error) throw error;
-  return data as Destination;
+    const { data, error } = await supabase
+      .from('destinations')
+      .insert([{ 
+        plan_id: sanitizeInput(plan_id), 
+        name: validatedData.name, 
+        x_position: validatedData.x_position, 
+        y_position: validatedData.y_position, 
+        notes: validatedData.notes, 
+        color: validatedData.color 
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Destination;
+  } catch (error) {
+    console.error('Database validation error:', error);
+    throw new Error('Invalid destination data');
+  }
 };
 
 export const getDestinations = async (plan_id: string) => {
-  const { data, error } = await supabase
-    .from('destinations')
-    .select('*')
-    .eq('plan_id', plan_id)
-    .order('order_index', { ascending: true });
+  try {
+    // Validate plan_id
+    if (!plan_id || typeof plan_id !== 'string') {
+      throw new Error('Invalid plan ID');
+    }
 
-  if (error) throw error;
-  return data as Destination[];
+    const sanitizedPlanId = sanitizeInput(plan_id);
+
+    const { data, error } = await supabase
+      .from('destinations')
+      .select('*')
+      .eq('plan_id', sanitizedPlanId)
+      .order('order_index', { ascending: true });
+
+    if (error) throw error;
+    return data as Destination[];
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const updateDestination = async (id: string, updates: Partial<Destination>) => {
-  const { data, error } = await supabase
-    .from('destinations')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+  try {
+    // Validate and sanitize updates
+    const sanitizedUpdates: Partial<Destination> = {};
+    
+    if (updates.name) {
+      sanitizedUpdates.name = sanitizeInput(updates.name);
+    }
+    if (updates.notes) {
+      sanitizedUpdates.notes = sanitizeInput(updates.notes);
+    }
+    if (updates.x_position !== undefined) {
+      sanitizedUpdates.x_position = Math.max(0, Math.min(5000, updates.x_position));
+    }
+    if (updates.y_position !== undefined) {
+      sanitizedUpdates.y_position = Math.max(0, Math.min(5000, updates.y_position));
+    }
+    if (updates.color) {
+      sanitizedUpdates.color = updates.color.match(/^#[0-9A-Fa-f]{6}$/) ? updates.color : '#ef4444';
+    }
 
-  if (error) throw error;
-  return data as Destination;
+    const { data, error } = await supabase
+      .from('destinations')
+      .update(sanitizedUpdates)
+      .eq('id', sanitizeInput(id))
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Destination;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const deleteDestination = async (id: string) => {
@@ -142,25 +274,57 @@ export const createDrawing = async (
   color = '#3b82f6',
   stroke_width = 2
 ) => {
-  const { data, error } = await supabase
-    .from('drawings')
-    .insert([{ plan_id, path_data, color, stroke_width }])
-    .select()
-    .single();
+  try {
+    // Validate and sanitize inputs
+    const validatedData = drawingSchema.parse({
+      path_data: path_data.map(point => ({
+        x: Math.max(0, Math.min(5000, point.x)),
+        y: Math.max(0, Math.min(5000, point.y))
+      })),
+      color: color.match(/^#[0-9A-Fa-f]{6}$/) ? color : '#3b82f6',
+      stroke_width: Math.max(1, Math.min(50, stroke_width))
+    });
 
-  if (error) throw error;
-  return data as Drawing;
+    const { data, error } = await supabase
+      .from('drawings')
+      .insert([{ 
+        plan_id: sanitizeInput(plan_id), 
+        path_data: validatedData.path_data, 
+        color: validatedData.color, 
+        stroke_width: validatedData.stroke_width 
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Drawing;
+  } catch (error) {
+    console.error('Database validation error:', error);
+    throw new Error('Invalid drawing data');
+  }
 };
 
 export const getDrawings = async (plan_id: string) => {
-  const { data, error } = await supabase
-    .from('drawings')
-    .select('*')
-    .eq('plan_id', plan_id)
-    .order('created_at', { ascending: true });
+  try {
+    // Validate plan_id
+    if (!plan_id || typeof plan_id !== 'string') {
+      throw new Error('Invalid plan ID');
+    }
 
-  if (error) throw error;
-  return data as Drawing[];
+    const sanitizedPlanId = sanitizeInput(plan_id);
+
+    const { data, error } = await supabase
+      .from('drawings')
+      .select('*')
+      .eq('plan_id', sanitizedPlanId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data as Drawing[];
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const deleteDrawing = async (id: string) => {

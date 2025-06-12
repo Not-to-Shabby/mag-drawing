@@ -232,13 +232,19 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               d.id === tempId ? { ...d, id: savedDest.id } : d
             ));
             setLastSaved(new Date());
-            console.log('Destination saved to database');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Destination saved to database');
+            }
           }
         } catch (error) {
-          console.log('Could not save destination to database - keeping local copy:', error);
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Could not save destination to database - keeping local copy:', error);
+          }
         }
       } else {
-        console.log('Working in offline mode - destination saved locally only');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Working in offline mode - destination saved locally only');
+        }
       }
     } catch (error) {
       console.error('Error adding destination:', error);
@@ -272,13 +278,17 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const saveDrawings = async () => {
     try {
       if (!planExists) {
-        console.log('Working in offline mode - drawings not saved to database');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Working in offline mode - drawings not saved to database');
+        }
         return;
       }
       
       const plan = await getPlanByToken(token);
       if (!plan) {
-        console.log('Plan not found - working in offline mode');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Plan not found - working in offline mode');
+        }
         return;
       }
       
@@ -296,9 +306,13 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       }
       
       setLastSaved(new Date());
-      console.log('Drawings saved successfully');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Drawings saved successfully');
+      }
     } catch (error) {
-      console.log('Could not save drawings to database - working in offline mode:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Could not save drawings to database - working in offline mode:', error);
+      }
     }
   };
 
@@ -351,13 +365,16 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               })));
             }
           }        } catch {
-          console.log('Plan not found or database not ready, creating offline plan');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Plan not found or database not ready, creating offline plan');
+          }
           // Plan doesn't exist or database not ready, work in offline mode
           setPlanTitle('Untitled Travel Plan (Offline Mode)');
           setPlanExists(false);
+        }      } catch (error) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Database connection issue, working in offline mode:', error);
         }
-      } catch (error) {
-        console.log('Database connection issue, working in offline mode:', error);
         setPlanTitle('Untitled Travel Plan (Offline Mode)');
         setPlanExists(false);
       } finally {
