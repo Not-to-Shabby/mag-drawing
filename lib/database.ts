@@ -69,79 +69,237 @@ const generateToken = () => {
          Math.random().toString(36).substring(2, 15);
 };
 
+// Generate a meaningful random plan name
+export const generatePlanName = () => {
+  const adjectives = [
+    'Amazing', 'Epic', 'Wonderful', 'Fantastic', 'Incredible', 'Spectacular', 
+    'Magical', 'Unforgettable', 'Adventurous', 'Dreamy', 'Perfect', 'Ultimate',
+    'Scenic', 'Hidden', 'Secret', 'Wild', 'Peaceful', 'Exciting', 'Legendary',
+    'Mysterious', 'Charming', 'Breathtaking', 'Stunning', 'Majestic', 'Exotic'
+  ];
+  
+  const places = [
+    'Island', 'Mountain', 'Beach', 'City', 'Forest', 'Desert', 'Valley', 'Coast',
+    'Village', 'Castle', 'Garden', 'Lake', 'River', 'Canyon', 'Peninsula', 'Bay',
+    'Harbor', 'Countryside', 'Meadow', 'Cliff', 'Waterfall', 'Temple', 'Palace',
+    'Market', 'Plaza', 'Bridge', 'Lighthouse', 'Vineyard', 'Glacier', 'Oasis'
+  ];
+  
+  const experiences = [
+    'Adventure', 'Journey', 'Escape', 'Discovery', 'Expedition', 'Quest', 'Voyage',
+    'Exploration', 'Getaway', 'Trip', 'Tour', 'Safari', 'Retreat', 'Experience',
+    'Wandering', 'Odyssey', 'Pilgrimage', 'Excursion', 'Holiday', 'Vacation'
+  ];
+  
+  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const place = places[Math.floor(Math.random() * places.length)];
+  const experience = experiences[Math.floor(Math.random() * experiences.length)];
+  
+  // Generate different name patterns
+  const patterns = [
+    `${adjective} ${place} ${experience}`,
+    `${place} ${experience}`,
+    `${adjective} ${experience}`,
+    `My ${adjective} ${place} Trip`,
+    `${experience} to ${adjective} ${place}`,
+    `${adjective} ${place} Discovery`
+  ];
+  
+  return patterns[Math.floor(Math.random() * patterns.length)];
+};
+
 // Plan operations
-export const createPlan = async (title: string, description?: string, existingToken?: string) => {
+export const createPlan = async (title: string, description: string, providedToken?: string): Promise<Plan> => {
   try {
-    const token = existingToken || generateToken();
+    const generatedOrProvidedToken = providedToken || generateToken();
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEBUG] createPlan: Token before sanitization: '${generatedOrProvidedToken}' (Existing token provided: ${!!providedToken})`);
+    }
     
-    // Validate and sanitize inputs
     const validatedData = planSchema.parse({
       title: sanitizeInput(title),
       description: description ? sanitizeInput(description) : '',
-      token: sanitizeInput(token),
+      token: sanitizeInput(generatedOrProvidedToken),
     });
-    
-    const { data, error } = await supabase
-      .from('plans')
-      .insert([{ 
-        token: validatedData.token, 
-        title: validatedData.title, 
-        description: validatedData.description 
-      }])
-      .select()
-      .single();
 
-    if (error) throw error;
-    return data as Plan;
-  } catch (error) {
-    console.error('Database validation error:', error);
-    throw new Error('Invalid plan data');
-  }
-};
-
-export const getPlanByToken = async (token: string) => {
-  try {
-    // Validate token format
-    if (!token || token.length < 10 || token.length > 50) {
-      throw new Error('Invalid token format');
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEBUG] createPlan: Token after sanitization, being saved: '${validatedData.token}'`);
+      console.log(`[DEBUG] createPlan: Attempting to save plan with title: '${validatedData.title}'`);
     }
     
-    const sanitizedToken = sanitizeInput(token);
-    
-    // Use a more specific query to avoid 406 errors
     const { data, error } = await supabase
       .from('plans')
+      .insert([
+        { title: validatedData.title, description: validatedData.description, token: validatedData.token }
+      ])
       .select('id, token, title, description, created_at, updated_at')
-      .eq('token', sanitizedToken)
-      .maybeSingle(); // Use maybeSingle() instead of single() to handle not found gracefully
-
-    if (error) {      console.error('Supabase error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
-      throw new Error(`Database error: ${error.message || 'Unknown error'}`);
+      .single();    if (error) {
+      // Check for duplicate key error first (this is expected in development due to React StrictMode)
+      if (error.code === '23505' && error.message.includes('plans_token_key')) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] createPlan: Detected duplicate token error (23505) - this is expected in React StrictMode. Attempting to fetch existing plan with token:', validatedData.token);
+        }
+        try {
+          const existingPlan = await getPlanByToken(validatedData.token);
+          if (existingPlan) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[DEBUG] createPlan: Successfully fetched existing plan after duplicate error:', existingPlan);
+            }
+            return existingPlan;
+          } else {
+            if (process.env.NODE_ENV === 'development') {
+              console.error('[DEBUG] createPlan: getPlanByToken returned null for existing plan, token:', validatedData.token);
+            }
+            throw new Error('Failed to retrieve existing plan after duplicate key error.');
+          }
+        } catch (fetchError) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[DEBUG] createPlan: Error while fetching existing plan after duplicate error:', fetchError);
+            console.error('[DEBUG] createPlan: Token used for fetch:', validatedData.token);
+          }          throw new Error('Failed to retrieve existing plan after duplicate key error.');
+        }
+      }
+      
+      // For non-duplicate errors, log detailed error information
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[DEBUG] createPlan: Unexpected Supabase error:', JSON.stringify(error, null, 2));
+        console.error('[DEBUG] createPlan: Error message:', error.message);
+        console.error('[DEBUG] createPlan: Error code:', error.code);
+        console.error('[DEBUG] createPlan: Token used:', validatedData.token);
+      }
+      throw error;
     }
 
     if (!data) {
-      throw new Error('Plan not found');
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[DEBUG] createPlan: No data returned from Supabase after insert, but no error reported.');
+      }
+      throw new Error('Plan creation did not return data.');
     }
 
-    return data as Plan;
-  } catch (error) {
-    if (error instanceof Error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Database error in getPlanByToken:', error.message);
-      }
-      throw error;
-    } else {
-      const errorMessage = 'Unknown database error occurred';
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Unknown error in getPlanByToken:', error);
-      }
-      throw new Error(errorMessage);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[DEBUG] createPlan: Successfully inserted plan. Returned data:', data);
     }
+    return {
+      id: data.id,
+      token: data.token,
+      title: data.title,
+      description: data.description,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+  } catch (error: unknown) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[DEBUG] createPlan: Error in createPlan:', error);
+    }
+
+    interface SupabaseError {
+      message: string;
+      code: string;
+      details?: string;
+      hint?: string;
+    }
+
+    const isSupabaseError = (err: unknown): err is SupabaseError => {
+        return typeof err === 'object' && err !== null && 'code' in err && typeof (err as SupabaseError).code === 'string' && 'message' in err && typeof (err as SupabaseError).message === 'string';
+    };
+
+    const getErrorMessage = (err: unknown): string => {
+        if (isSupabaseError(err)) {
+            return err.message;
+        }
+        if (err instanceof Error) {
+            return err.message;
+        }
+        return 'Unknown error';
+    };
+
+    const errorMessage = getErrorMessage(error);
+
+    if (errorMessage.includes('Plan not found')) {
+        throw error;
+    }
+    if (isSupabaseError(error) && error.code === '23505' && error.message.includes('plans_token_key')) {
+        throw new Error('Plan creation failed due to duplicate token, and subsequent fetch also failed.');
+    }
+    throw new Error(`Plan creation failed: ${errorMessage}`);
+  }
+};
+
+export const getPlanByToken = async (token: string): Promise<Plan | null> => {
+  const sanitizedToken = sanitizeInput(token);
+  if (!sanitizedToken) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[DEBUG] getPlanByToken: Invalid token provided (empty after sanitization). Original:', token);
+    }
+    throw new Error('Invalid token provided.');
+  }
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[DEBUG] getPlanByToken: Attempting to fetch plan with sanitized token: '${sanitizedToken}'`);
+  }
+
+  try {
+    const { data, error, status } = await supabase
+      .from('plans')
+      .select('id, token, title, description, created_at, updated_at')
+      .eq('token', sanitizedToken)
+      .maybeSingle();
+
+    if (error && status !== 406) { // 406 is "Not Acceptable", often means no rows found with maybeSingle()
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[DEBUG] getPlanByToken: Supabase error fetching plan.', {
+          message: error.message,
+          details: error.details,
+          code: error.code,
+          status: status,
+          tokenUsed: sanitizedToken
+        });
+      }
+      // Do not throw "Plan not found" for generic errors, let the specific check below handle it.
+      // Throw for other errors.
+      if (status !== 404) { // 404 might also indicate not found, but maybeSingle handles this by returning null data
+         // Rethrow if it's not a "not found" scenario that maybeSingle handles by returning null
+        if (!error.message.includes('Results contain 0 rows')) { // PostgREST might not use 404 for 0 rows with maybeSingle
+            throw new Error(`Database error fetching plan: ${error.message}`);
+        }
+      }
+    }
+    
+    if (!data) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[DEBUG] getPlanByToken: Plan not found in database. Original token: '${token}', Sanitized: '${sanitizedToken}'`);
+      }
+      throw new Error('Plan not found'); // Specific error for "not found"
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[DEBUG] getPlanByToken: Successfully fetched plan:', data);
+    }
+    return data as Plan;
+
+  } catch (error: unknown) {
+    const getErrorMessage = (err: unknown): string => {
+        if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message: string }).message === 'string') {
+            return (err as { message: string }).message;
+        }
+        if (err instanceof Error) {
+            return err.message;
+        }
+        return 'Unknown error';
+    };
+    const errorMessageString = getErrorMessage(error);
+
+    if (process.env.NODE_ENV === 'development') {
+      if (!errorMessageString.includes('Plan not found')) {
+        console.error('[DEBUG] getPlanByToken: Catch block error. Original token:', token, 'Sanitized:', sanitizedToken, 'Error:', error);
+      }
+    }
+    
+    if (errorMessageString.includes('Plan not found') || errorMessageString.includes('Results contain 0 rows')) {
+        throw new Error('Plan not found');
+    }
+    throw error;
   }
 };
 
@@ -174,12 +332,27 @@ export const deletePlan = async (token: string) => {
   // First get the plan to verify token
   const plan = await getPlanByToken(token);
   
+  if (!plan) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[DEBUG] deletePlan: Plan with token '${token}' not found. Nothing to delete.`);
+    }
+    // Optionally, throw an error or return a status
+    // For now, let's just return if plan not found, as delete operation implies idempotency
+    return; 
+  }
+
   const { error } = await supabase
     .from('plans')
     .delete()
     .eq('id', plan.id);
 
-  if (error) throw error;
+  if (error) {
+    console.error(`[DEBUG] deletePlan: Supabase error deleting plan with id '${plan.id}' and token '${token}':`, error);
+    throw error;
+  }
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[DEBUG] deletePlan: Successfully deleted plan with id '${plan.id}' and token '${token}'.`);
+  }
 };
 
 // Destination operations

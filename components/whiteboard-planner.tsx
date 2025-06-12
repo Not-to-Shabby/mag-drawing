@@ -14,7 +14,9 @@ import {
   deleteDestination,
   getDrawings,
   createDrawing,
-  deleteAllDrawings
+  deleteAllDrawings,
+  createPlan,
+  generatePlanName
 } from '../lib/database';
 
 interface Destination {
@@ -321,6 +323,8 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       if (!planExists) return;
       
       const plan = await getPlanByToken(token);
+      if (!plan) return;
+      
       await updatePlan(plan.id, { title: newTitle });
       setPlanTitle(newTitle);
       setLastSaved(new Date());
@@ -355,25 +359,68 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             }
             
             // Load drawings
-            const drawings = await getDrawings(plan.id);
-            if (drawings && Array.isArray(drawings)) {
-              setDrawings(drawings.map(d => ({
+            const drawingsData = await getDrawings(plan.id); // Renamed to avoid conflict
+            if (drawingsData && Array.isArray(drawingsData)) {
+              setDrawings(drawingsData.map(d => ({
                 id: d.id,
                 points: d.path_data,
                 color: d.color,
                 width: d.stroke_width
               })));
             }
-          }        } catch {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('Plan not found or database not ready, creating offline plan');
+          } else {
+            // This case should ideally not be reached if getPlanByToken throws an error for not found
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[DEBUG] loadPlan: getPlanByToken returned null/undefined, attempting to create plan.');
+            }            try {
+              const randomPlanName = generatePlanName();
+              const newPlan = await createPlan(randomPlanName, 'Automatically created plan', token);
+              setPlanTitle(newPlan.title || 'Untitled Travel Plan');
+              setPlanExists(true);
+              setLastSaved(new Date());
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[DEBUG] loadPlan: Successfully created new plan with token:', token);
+              }
+            } catch (creationError) {
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[DEBUG] loadPlan: Failed to create new plan, entering offline mode. Error:', creationError);
+              }
+              setPlanTitle('Untitled Travel Plan (Offline Mode)');
+              setPlanExists(false);
+            }
           }
-          // Plan doesn't exist or database not ready, work in offline mode
-          setPlanTitle('Untitled Travel Plan (Offline Mode)');
-          setPlanExists(false);
-        }      } catch (error) {
+        } catch (fetchError) {
+          if (fetchError instanceof Error && fetchError.message.includes('Plan not found')) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[DEBUG] loadPlan: Plan not found, attempting to create a new plan with token:', token);
+            }            try {
+              const randomPlanName = generatePlanName();
+              const newPlan = await createPlan(randomPlanName, 'Automatically created plan', token);
+              setPlanTitle(newPlan.title || 'Untitled Travel Plan');
+              setPlanExists(true);
+              setLastSaved(new Date());
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[DEBUG] loadPlan: Successfully created new plan after initial fetch failed. Token:', token);
+              }
+            } catch (creationError) {
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[DEBUG] loadPlan: Failed to create new plan after fetch error, entering offline mode. Error:', creationError);
+              }
+              setPlanTitle('Untitled Travel Plan (Offline Mode)');
+              setPlanExists(false);
+            }
+          } else {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Plan not found or database not ready, creating offline plan. Original error:', fetchError);
+            }
+            // Plan doesn't exist or database not ready, work in offline mode
+            setPlanTitle('Untitled Travel Plan (Offline Mode)');
+            setPlanExists(false);
+          }
+        }
+      } catch (error) { // Outer catch for any other unexpected errors during loading
         if (process.env.NODE_ENV === 'development') {
-          console.log('Database connection issue, working in offline mode:', error);
+          console.log('Database connection issue or other error in loadPlan, working in offline mode:', error);
         }
         setPlanTitle('Untitled Travel Plan (Offline Mode)');
         setPlanExists(false);
@@ -383,7 +430,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     };
 
     loadPlan();
-  }, [token]);
+  }, [token]); // Removed createPlan from dependencies as it's stable
 
   // Show loading state
   if (isLoading) {
