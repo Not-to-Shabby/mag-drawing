@@ -34,11 +34,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       'Content-Type': 'application/json',
       'Prefer': 'return=representation',
     },
-  },
-  db: {
+  },  db: {
     schema: 'public',
-  },
-  realtime: {
-    enabled: false, // Disable realtime for security and performance
   },
 });
