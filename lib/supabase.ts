@@ -33,8 +33,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       'Accept': 'application/json, application/vnd.pgrst.object+json',
       'Content-Type': 'application/json',
       'Prefer': 'return=representation',
-    },
-  },  db: {
+    },  },
+  db: {
     schema: 'public',
   },
 });
