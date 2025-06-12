@@ -259,12 +259,24 @@ export const updateDestination = async (id: string, updates: Partial<Destination
 };
 
 export const deleteDestination = async (id: string) => {
-  const { error } = await supabase
-    .from('destinations')
-    .delete()
-    .eq('id', id);
+  try {
+    // Validate and sanitize id
+    if (!id || typeof id !== 'string') {
+      throw new Error('Invalid destination ID');
+    }
 
-  if (error) throw error;
+    const sanitizedId = sanitizeInput(id);
+
+    const { error } = await supabase
+      .from('destinations')
+      .delete()
+      .eq('id', sanitizedId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 // Drawing operations
@@ -328,19 +340,43 @@ export const getDrawings = async (plan_id: string) => {
 };
 
 export const deleteDrawing = async (id: string) => {
-  const { error } = await supabase
-    .from('drawings')
-    .delete()
-    .eq('id', id);
+  try {
+    // Validate and sanitize id
+    if (!id || typeof id !== 'string') {
+      throw new Error('Invalid drawing ID');
+    }
 
-  if (error) throw error;
+    const sanitizedId = sanitizeInput(id);
+
+    const { error } = await supabase
+      .from('drawings')
+      .delete()
+      .eq('id', sanitizedId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
 
 export const deleteAllDrawings = async (plan_id: string) => {
-  const { error } = await supabase
-    .from('drawings')
-    .delete()
-    .eq('plan_id', plan_id);
+  try {
+    // Validate and sanitize plan_id
+    if (!plan_id || typeof plan_id !== 'string') {
+      throw new Error('Invalid plan ID');
+    }
 
-  if (error) throw error;
+    const sanitizedPlanId = sanitizeInput(plan_id);
+
+    const { error } = await supabase
+      .from('drawings')
+      .delete()
+      .eq('plan_id', sanitizedPlanId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Database error:', error);
+    throw error;
+  }
 };
