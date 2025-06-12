@@ -108,17 +108,40 @@ export const getPlanByToken = async (token: string) => {
     
     const sanitizedToken = sanitizeInput(token);
     
+    // Use a more specific query to avoid 406 errors
     const { data, error } = await supabase
       .from('plans')
-      .select('*')
+      .select('id, token, title, description, created_at, updated_at')
       .eq('token', sanitizedToken)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to handle not found gracefully
 
-    if (error) throw error;
+    if (error) {      console.error('Supabase error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      throw new Error(`Database error: ${error.message || 'Unknown error'}`);
+    }
+
+    if (!data) {
+      throw new Error('Plan not found');
+    }
+
     return data as Plan;
   } catch (error) {
-    console.error('Database error:', error);
-    throw error;
+    if (error instanceof Error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Database error in getPlanByToken:', error.message);
+      }
+      throw error;
+    } else {
+      const errorMessage = 'Unknown database error occurred';
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Unknown error in getPlanByToken:', error);
+      }
+      throw new Error(errorMessage);
+    }
   }
 };
 
@@ -214,11 +237,29 @@ export const getDestinations = async (plan_id: string) => {
       .eq('plan_id', sanitizedPlanId)
       .order('order_index', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error in getDestinations:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw new Error(`Failed to fetch destinations: ${error.message || 'Unknown error'}`);
+    }
+
     return data as Destination[];
   } catch (error) {
-    console.error('Database error:', error);
-    throw error;
+    if (error instanceof Error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Database error in getDestinations:', error.message);
+      }
+      throw error;
+    } else {
+      const errorMessage = 'Unknown error fetching destinations';
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Unknown error in getDestinations:', error);
+      }
+      throw new Error(errorMessage);
+    }
   }
 };
 
@@ -331,11 +372,29 @@ export const getDrawings = async (plan_id: string) => {
       .eq('plan_id', sanitizedPlanId)
       .order('created_at', { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error in getDrawings:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw new Error(`Failed to fetch drawings: ${error.message || 'Unknown error'}`);
+    }
+
     return data as Drawing[];
   } catch (error) {
-    console.error('Database error:', error);
-    throw error;
+    if (error instanceof Error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Database error in getDrawings:', error.message);
+      }
+      throw error;
+    } else {
+      const errorMessage = 'Unknown error fetching drawings';
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Unknown error in getDrawings:', error);
+      }
+      throw new Error(errorMessage);
+    }
   }
 };
 

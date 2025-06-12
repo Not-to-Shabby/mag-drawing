@@ -30,8 +30,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     headers: {
       'X-Client-Info': 'mag-drawing@1.0.0',
-      'Accept': 'application/json',
+      'Accept': 'application/json, application/vnd.pgrst.object+json',
       'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
     },
+  },
+  db: {
+    schema: 'public',
+  },
+  realtime: {
+    enabled: false, // Disable realtime for security and performance
   },
 });
