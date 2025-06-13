@@ -72,7 +72,7 @@ export function middleware(request: NextRequest) {
     "default-src 'self'",
     isDevelopment 
       ? `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' https://vercel.live`  // Allow eval in dev for Next.js
-      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://vercel.live 'sha256-LcsuUMiDkprrt6ZKeiLP4iYNhWo8NqaSbAgtoZxVK3s=' 'sha256-OBTN3RiyCV4Bq7dFqZ5a2pAXjnCcCYeTJMO2I/LYKeo=' 'sha256-As1gZk4vkQAnCBILVXtScrpgVC8JPY7O95APvygoI1Y=' 'sha256-NW4hFJES1S/ILs2zfEI+ONN8Pm1S085P0SkhBpsg77w=' 'sha256-LDMzQI+CZgvdjMCfJgC7Fb+IpuTXsjyb6GCY8zGJ1ng=' 'sha256-3QLoG1QSbzRTfQIMi7+wo8D/b5gZiHymhh5foKjHvCQ=' 'sha256-Tzzh4ZNs/VztgIxDWej5V0cAL3JoGXekk5k5Z2oXB1I=' 'sha256-FxS2QDqia0huNTcneJYJ1T75H2vU+7xfK3wymfLNwMc='`, // Strict in production with Vercel Live script hashes
+      : `script-src 'self' 'nonce-${nonce}' https://vercel.live 'sha256-LcsuUMiDkprrt6ZKeiLP4iYNhWo8NqaSbAgtoZxVK3s=' 'sha256-OBTN3RiyCV4Bq7dFqZ5a2pAXjnCcCYeTJMO2I/LYKeo=' 'sha256-As1gZk4vkQAnCBILVXtScrpgVC8JPY7O95APvygoI1Y=' 'sha256-NW4hFJES1S/ILs2zfEI+ONN8Pm1S085P0SkhBpsg77w=' 'sha256-LDMzQI+CZgvdjMCfJgC7Fb+IpuTXsjyb6GCY8zGJ1ng=' 'sha256-3QLoG1QSbzRTfQIMi7+wo8D/b5gZiHymhh5foKjHvCQ=' 'sha256-Tzzh4ZNs/VztgIxDWej5V0cAL3JoGXekk5k5Z2oXB1I=' 'sha256-FxS2QDqia0huNTcneJYJ1T75H2vU+7xfK3wymfLNwMc=' 'sha256-tU7vFFUOIs4MLum5xN4+csm2AOtguEY0KQJJtN0a8XY='`, // Allow self, vercel.live, nonced scripts, and specific hashes
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https://fonts.gstatic.com",
