@@ -62,18 +62,21 @@ function applyRateLimit(clientIP: string, limit: number = 100, windowMs: number 
 }
 
 export function middleware(request: NextRequest) {
-  const response = NextResponse.next();
-  // Enhanced Content Security Policy with nonce support
+  const response = NextResponse.next();  // Enhanced Content Security Policy with environment-specific settings
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  
+  // Different CSP for development vs production
+  const isDevelopment = process.env.NODE_ENV === 'development';
   
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://vercel.live`,
+    isDevelopment 
+      ? `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' https://vercel.live`  // Allow eval in dev for Next.js
+      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://vercel.live`, // Strict in production
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://*.supabase.co https://vercel.live wss://*.supabase.co",
-    "media-src 'self'",
+    "connect-src 'self' https://*.supabase.co https://vercel.live wss://*.supabase.co",    "media-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -82,7 +85,8 @@ export function middleware(request: NextRequest) {
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "upgrade-insecure-requests",
-    "report-uri /api/csp-report" // CSP violation reporting
+    // Only add CSP reporting in production to avoid dev noise
+    ...(isDevelopment ? [] : ["report-uri /api/csp-report"])
   ].join('; ');
 
   // Essential security headers
