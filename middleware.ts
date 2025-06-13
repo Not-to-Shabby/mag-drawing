@@ -23,14 +23,29 @@ function getClientIP(request: NextRequest): string {
   return cloudflareIP || realIP || forwarded?.split(',')[0]?.trim() || 'unknown';
 }
 
-// Rate limiting function
-function applyRateLimit(clientIP: string, limit: number = 100, windowMs: number = 15 * 60 * 1000): { allowed: boolean; remaining: number; resetTime: number } {
+// Enhanced rate limiting with burst protection
+function applyRateLimit(clientIP: string, limit: number = 100, windowMs: number = 15 * 60 * 1000, burstLimit: number = 20): { allowed: boolean; remaining: number; resetTime: number; burst?: boolean } {
   cleanupRateLimit();
   
   const now = Date.now();
   const resetTime = now + windowMs;
   const key = `rate_limit:${clientIP}`;
+  const burstKey = `burst:${clientIP}`;
   
+  // Check burst protection (short-term high frequency)
+  const burstWindow = 60 * 1000; // 1 minute
+  const burstEntry = rateLimitStore.get(burstKey);
+  
+  if (burstEntry && burstEntry.resetTime > now) {
+    if (burstEntry.count >= burstLimit) {
+      return { allowed: false, remaining: 0, resetTime: burstEntry.resetTime, burst: true };
+    }
+    burstEntry.count++;
+  } else {
+    rateLimitStore.set(burstKey, { count: 1, resetTime: now + burstWindow });
+  }
+  
+  // Regular rate limiting
   const existing = rateLimitStore.get(key);
   
   if (!existing) {
@@ -48,11 +63,12 @@ function applyRateLimit(clientIP: string, limit: number = 100, windowMs: number 
 
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
+  // Enhanced Content Security Policy with nonce support
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   
-  // Enhanced Content Security Policy
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://vercel.live`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https://fonts.gstatic.com",
@@ -65,7 +81,8 @@ export function middleware(request: NextRequest) {
     "frame-src 'none'",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
-    "upgrade-insecure-requests"
+    "upgrade-insecure-requests",
+    "report-uri /api/csp-report" // CSP violation reporting
   ].join('; ');
 
   // Essential security headers
@@ -83,24 +100,31 @@ export function middleware(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   }
-
-  // Rate limiting for API routes
+  // Rate limiting for API routes with enhanced protection
   if (request.nextUrl.pathname.startsWith('/api/')) {
     const clientIP = getClientIP(request);
-    const { allowed, remaining, resetTime } = applyRateLimit(clientIP, 100, 15 * 60 * 1000);
+    const { allowed, remaining, resetTime, burst } = applyRateLimit(clientIP, 100, 15 * 60 * 1000, 20);
     
-    // Set rate limit headers
+    // Set comprehensive rate limit headers
     response.headers.set('X-RateLimit-Limit', '100');
     response.headers.set('X-RateLimit-Remaining', remaining.toString());
     response.headers.set('X-RateLimit-Reset', Math.ceil(resetTime / 1000).toString());
     response.headers.set('X-RateLimit-Window', '900'); // 15 minutes in seconds
+    response.headers.set('X-RateLimit-Burst-Limit', '20');
     
     if (!allowed) {
-      return new NextResponse('Too Many Requests', {
+      const retryAfter = Math.ceil((resetTime - Date.now()) / 1000);
+      const errorMessage = burst ? 'Burst rate limit exceeded' : 'Rate limit exceeded';
+      
+      return new NextResponse(JSON.stringify({ 
+        error: errorMessage,
+        retryAfter,
+        message: 'Too many requests. Please slow down and try again later.'
+      }), {
         status: 429,
         headers: {
           'Content-Type': 'application/json',
-          'Retry-After': Math.ceil((resetTime - Date.now()) / 1000).toString(),
+          'Retry-After': retryAfter.toString(),
           'X-RateLimit-Limit': '100',
           'X-RateLimit-Remaining': '0',
           'X-RateLimit-Reset': Math.ceil(resetTime / 1000).toString(),
@@ -108,14 +132,17 @@ export function middleware(request: NextRequest) {
       });
     }
   }
-
-  // Additional security for sensitive API endpoints
+  // Enhanced security for sensitive API endpoints
   if (request.nextUrl.pathname.startsWith('/api/plans')) {
     const clientIP = getClientIP(request);
-    const { allowed } = applyRateLimit(`plans:${clientIP}`, 20, 5 * 60 * 1000); // 20 requests per 5 minutes
+    const { allowed } = applyRateLimit(`plans:${clientIP}`, 20, 5 * 60 * 1000, 10); // 20 requests per 5 minutes, 10 burst
     
     if (!allowed) {
-      return new NextResponse('Rate limit exceeded for plan operations', {
+      return new NextResponse(JSON.stringify({
+        error: 'Rate limit exceeded for plan operations',
+        message: 'Too many plan requests. Please wait before creating or accessing more plans.',
+        retryAfter: 300
+      }), {
         status: 429,
         headers: {
           'Content-Type': 'application/json',
@@ -137,18 +164,48 @@ export function middleware(request: NextRequest) {
       });
     }
   }
-
-  // Block suspicious patterns
+  // Enhanced suspicious pattern blocking
   const suspiciousPatterns = [
     /\.(php|asp|aspx|jsp|cgi)$/i,
     /\/(wp-admin|wordpress|phpmyadmin)/i,
-    /\/(\.env|\.git|config)/i,
-    /<script|javascript:|vbscript:/i,
+    /\/(\.env|\.git|config|admin|backup)/i,
+    /<script|javascript:|vbscript:|data:text\/html/i,
+    /union\s+select|drop\s+table|insert\s+into/i, // SQL injection patterns
+    /\.\./i, // Path traversal
+    /eval\(|exec\(|system\(/i, // Code execution
   ];
+
+  const userAgent = request.headers.get('user-agent') || '';
+  const suspiciousUserAgents = [
+    /curl|wget|python|ruby|perl|powershell/i,
+    /bot|crawler|spider|scraper/i,
+    /scanner|vuln|exploit/i,
+  ];
+
+  // Block suspicious user agents for sensitive endpoints
+  if (request.nextUrl.pathname.startsWith('/api/')) {
+    for (const pattern of suspiciousUserAgents) {
+      if (pattern.test(userAgent)) {
+        return new NextResponse(JSON.stringify({
+          error: 'Access denied',
+          message: 'Automated access detected'
+        }), { 
+          status: 403,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  }
 
   for (const pattern of suspiciousPatterns) {
     if (pattern.test(request.nextUrl.pathname + request.nextUrl.search)) {
-      return new NextResponse('Forbidden', { status: 403 });
+      return new NextResponse(JSON.stringify({
+        error: 'Forbidden',
+        message: 'Suspicious request pattern detected'
+      }), { 
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
   }
 
