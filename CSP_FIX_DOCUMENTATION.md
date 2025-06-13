@@ -17,16 +17,24 @@ Next.js generates various inline scripts for:
 
 These scripts have dynamically generated hashes that change with each build, making it impractical to whitelist specific hashes in the CSP.
 
+**Critical Issue**: When a CSP directive includes a nonce, the `'unsafe-inline'` directive is **ignored** by browsers. This is a security feature of CSP.
+
 ## Solution Implemented
 1. **Development Environment**: 
    - Allow `'unsafe-eval'` (required for hot reloading)
    - Allow `'unsafe-inline'` (for all Next.js inline scripts)
-   - Include nonce support for custom scripts
+   - **Remove nonce** from script-src to ensure `'unsafe-inline'` works
 
 2. **Production Environment**:
    - Allow `'unsafe-inline'` for Next.js compatibility
-   - Include nonce support for custom scripts
+   - **Do not include nonce** in script-src (nonce disables unsafe-inline)
    - Monitor CSP violations via reporting endpoint
+
+### Key Fix
+**Removed nonce from CSP script-src directive** because:
+- Nonce presence causes browsers to ignore `'unsafe-inline'`
+- This is per CSP specification security behavior
+- Next.js inline scripts don't use nonces, so they were being blocked
 
 ## Security Considerations
 - While `'unsafe-inline'` reduces CSP strictness, it's necessary for Next.js functionality

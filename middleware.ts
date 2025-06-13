@@ -75,21 +75,20 @@ export function middleware(request: NextRequest) {
   
   // Different CSP for development vs production
   const isDevelopment = process.env.NODE_ENV === 'development';
-  
-  // CSP Strategy:
+    // CSP Strategy:
   // 1. Development: Very permissive to allow hot reloading and debugging
-  // 2. Production: Allow Next.js inline scripts but monitor via CSP reports
+  // 2. Production: Allow Next.js inline scripts - NOTE: Cannot use nonce with unsafe-inline
   // 3. Future: Migrate to strict hash-based approach once all Next.js hashes are identified
   let scriptSrc: string;
   
   if (isDevelopment) {
     // Development needs eval for hot reloading and inline for various Next.js features
-    scriptSrc = `script-src 'self' 'unsafe-eval' 'unsafe-inline' 'nonce-${nonce}' https://vercel.live`;
+    // Include nonce for development tools but unsafe-inline will take precedence
+    scriptSrc = `script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live`;
   } else {
-    // Production: Allow Next.js inline scripts but try to be more specific
-    // We'll allow unsafe-inline for now but monitor CSP reports to refine this
-    // TODO: Replace 'unsafe-inline' with specific hashes once all Next.js scripts are catalogued
-    scriptSrc = `script-src 'self' 'unsafe-inline' 'nonce-${nonce}' https://vercel.live https://*.vercel.app`;
+    // Production: Allow Next.js inline scripts
+    // IMPORTANT: Cannot include nonce with unsafe-inline as nonce presence disables unsafe-inline
+    scriptSrc = `script-src 'self' 'unsafe-inline' https://vercel.live https://*.vercel.app`;
   }
   
   const csp = [
@@ -110,10 +109,12 @@ export function middleware(request: NextRequest) {
     "upgrade-insecure-requests",
     // Only add CSP reporting in production to avoid dev noise
     ...(isDevelopment ? [] : ["report-uri /api/csp-report"])
-  ].join('; ');
-  // Essential security headers
+  ].join('; ');  // Essential security headers
   response.headers.set('Content-Security-Policy', csp);
-  response.headers.set('X-Nonce', nonce); // Pass nonce to components
+  // Only set nonce header in development when we're actually using nonces
+  if (isDevelopment) {
+    response.headers.set('X-Nonce', nonce);
+  }
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-XSS-Protection', '1; mode=block');
