@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { z } from 'zod';
+import crypto from 'crypto';
 
 // Validation schemas
 const planSchema = z.object({
@@ -63,10 +64,21 @@ export interface Drawing {
   created_at: string;
 }
 
-// Generate a random token for URL sharing
+// Generate a cryptographically secure random token for URL sharing
 const generateToken = () => {
-  return Math.random().toString(36).substring(2, 15) + 
-         Math.random().toString(36).substring(2, 15);
+  // Use crypto.randomBytes for server-side secure token generation
+  if (typeof window === 'undefined') {
+    // Server-side: use Node.js crypto
+    return crypto.randomBytes(18).toString('base64url'); // URL-safe base64
+  } else {
+    // Client-side fallback: use Web Crypto API
+    const array = new Uint8Array(18);
+    crypto.getRandomValues(array);
+    return btoa(String.fromCharCode(...array))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+  }
 };
 
 // Generate a meaningful random plan name

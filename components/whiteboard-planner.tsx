@@ -477,14 +477,39 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             <Save className="h-4 w-4 mr-2" />
             Save
           </Button>
-          
-          <Button
+            <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              const newToken = Math.random().toString(36).substring(2, 15) + 
-                              Math.random().toString(36).substring(2, 15);
-              window.location.href = `/plan/${newToken}`;
+            onClick={async () => {
+              try {
+                // Generate secure token server-side
+                const response = await fetch('/api/plans', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    action: 'generate_token'
+                  })
+                });
+                
+                if (response.ok) {
+                  const data = await response.json();
+                  window.location.href = `/plan/${data.token}`;
+                } else {
+                  // Fallback with warning
+                  console.warn('Server token generation failed');
+                  const fallbackToken = `client_${Date.now()}_${crypto.getRandomValues(new Uint32Array(2)).join('')}`;
+                  window.location.href = `/plan/${fallbackToken}`;
+                }
+              } catch (error) {
+                console.error('Error generating new plan token:', error);
+                // Secure fallback using Web Crypto API
+                const array = new Uint8Array(12);
+                crypto.getRandomValues(array);
+                const fallbackToken = `offline_${Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+                window.location.href = `/plan/${fallbackToken}`;
+              }
             }}
           >
             <PlusCircle className="h-4 w-4 mr-2" />

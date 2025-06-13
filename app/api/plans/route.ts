@@ -131,10 +131,8 @@ export async function POST(request: NextRequest) {
           }
         }
       );
-    }
-
-    // Validate and sanitize request body
-    let body = {};
+    }    // Validate and sanitize request body
+    let body: { action?: string; title?: string; description?: string } = {};
     try {
       const rawBody = await request.text();
       if (rawBody.trim()) {
@@ -153,7 +151,31 @@ export async function POST(request: NextRequest) {
         }
       );
     }
+
+    // Handle secure token generation request
+    if (body.action === 'generate_token') {
+      const secureToken = generateSecureToken();
+      
+      return NextResponse.json(
+        { 
+          token: secureToken,
+          message: 'Secure token generated successfully',
+          timestamp: new Date().toISOString()
+        },
+        { 
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' 
+              ? 'https://drawing-plan.vercel.app' 
+              : '*',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'X-Content-Type-Options': 'nosniff'
+          }
+        }
+      );
+    }
     
+    // Validate plan creation data
     const validatedData = createPlanSchema.safeParse(body);
     
     if (!validatedData.success) {
@@ -176,7 +198,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate cryptographically secure token
+    // Generate cryptographically secure token for plan creation
     const token = generateSecureToken();
     
     if (!token || token.length < 10) {
@@ -195,6 +217,7 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({ 
       token,
+      message: 'Plan created successfully',
       expiresIn: process.env.NODE_ENV === 'production' ? 2592000 : null // 30 days in production
     });
     
@@ -208,18 +231,16 @@ export async function POST(request: NextRequest) {
     response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
     response.headers.set('X-Content-Type-Options', 'nosniff');
     response.headers.set('X-Frame-Options', 'DENY');
-    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-
-    return response;
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');    return response;
   } catch (error) {
     // Log error securely (don't expose internal details)
     if (process.env.NODE_ENV === 'development') {
-      console.error('Plan creation error:', error);
+      console.error('Plan API error:', error);
     }
     
     return NextResponse.json(
       { error: 'Internal server error' },
-      { 
+      {        
         status: 500,
         headers: {
           'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' 
@@ -235,10 +256,10 @@ export async function OPTIONS() {
   return new Response(null, {
     status: 200,
     headers: {
-      'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' 
-        ? 'https://drawing-plan.vercel.app' 
+      'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production'
+        ? 'https://drawing-plan.vercel.app'
         : '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Max-Age': '86400',
       'Cache-Control': 'public, max-age=86400', // Cache preflight for 24 hours

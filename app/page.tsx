@@ -7,12 +7,37 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    // Generate a new plan token and redirect to it
-    const newToken = Math.random().toString(36).substring(2, 15) + 
-                     Math.random().toString(36).substring(2, 15);
-    
-    // Use replace instead of push to avoid back button issues
-    router.replace(`/plan/${newToken}`);
+    // Generate a new plan token server-side for security
+    const generateSecureToken = async () => {
+      try {
+        const response = await fetch('/api/plans', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'generate_token'
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          router.replace(`/plan/${data.token}`);
+        } else {
+          // Fallback to client-side generation only if server fails
+          console.warn('Server token generation failed, using fallback');
+          const fallbackToken = `client_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+          router.replace(`/plan/${fallbackToken}`);
+        }
+      } catch (error) {
+        console.error('Token generation error:', error);
+        // Fallback for network errors
+        const fallbackToken = `offline_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+        router.replace(`/plan/${fallbackToken}`);
+      }
+    };
+
+    generateSecureToken();
   }, [router]);
 
   return (
