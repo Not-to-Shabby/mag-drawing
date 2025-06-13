@@ -62,21 +62,44 @@ function applyRateLimit(clientIP: string, limit: number = 100, windowMs: number 
 }
 
 export function middleware(request: NextRequest) {
-  const response = NextResponse.next();  // Enhanced Content Security Policy with environment-specific settings
+  const response = NextResponse.next();
+  
+  // Enhanced Content Security Policy with environment-specific settings
+  // Note: Next.js generates inline scripts for various functionalities including:
+  // - Hydration scripts
+  // - Router prefetching
+  // - Dynamic imports
+  // - Error boundaries
+  // These scripts have dynamic hashes that change with each build/deployment
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   
   // Different CSP for development vs production
   const isDevelopment = process.env.NODE_ENV === 'development';
   
+  // CSP Strategy:
+  // 1. Development: Very permissive to allow hot reloading and debugging
+  // 2. Production: Allow Next.js inline scripts but monitor via CSP reports
+  // 3. Future: Migrate to strict hash-based approach once all Next.js hashes are identified
+  let scriptSrc: string;
+  
+  if (isDevelopment) {
+    // Development needs eval for hot reloading and inline for various Next.js features
+    scriptSrc = `script-src 'self' 'unsafe-eval' 'unsafe-inline' 'nonce-${nonce}' https://vercel.live`;
+  } else {
+    // Production: Allow Next.js inline scripts but try to be more specific
+    // We'll allow unsafe-inline for now but monitor CSP reports to refine this
+    // TODO: Replace 'unsafe-inline' with specific hashes once all Next.js scripts are catalogued
+    scriptSrc = `script-src 'self' 'unsafe-inline' 'nonce-${nonce}' https://vercel.live https://*.vercel.app`;
+  }
+  
   const csp = [
     "default-src 'self'",
-    isDevelopment 
-      ? `script-src 'self' 'unsafe-eval' 'nonce-${nonce}' https://vercel.live`  // Allow eval in dev for Next.js
-      : `script-src 'self' 'nonce-${nonce}' https://vercel.live 'sha256-LcsuUMiDkprrt6ZKeiLP4iYNhWo8NqaSbAgtoZxVK3s=' 'sha256-OBTN3RiyCV4Bq7dFqZ5a2pAXjnCcCYeTJMO2I/LYKeo=' 'sha256-As1gZk4vkQAnCBILVXtScrpgVC8JPY7O95APvygoI1Y=' 'sha256-NW4hFJES1S/ILs2zfEI+ONN8Pm1S085P0SkhBpsg77w=' 'sha256-LDMzQI+CZgvdjMCfJgC7Fb+IpuTXsjyb6GCY8zGJ1ng=' 'sha256-3QLoG1QSbzRTfQIMi7+wo8D/b5gZiHymhh5foKjHvCQ=' 'sha256-Tzzh4ZNs/VztgIxDWej5V0cAL3JoGXekk5k5Z2oXB1I=' 'sha256-FxS2QDqia0huNTcneJYJ1T75H2vU+7xfK3wymfLNwMc=' 'sha256-tU7vFFUOIs4MLum5xN4+csm2AOtguEY0KQJJtN0a8XY='`, // Allow self, vercel.live, nonced scripts, and specific hashes
+    scriptSrc,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: https: blob:",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://*.supabase.co https://vercel.live wss://*.supabase.co",    "media-src 'self'",
+    "connect-src 'self' https://*.supabase.co https://vercel.live https://*.vercel.app wss://*.supabase.co",
+    "media-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -88,9 +111,9 @@ export function middleware(request: NextRequest) {
     // Only add CSP reporting in production to avoid dev noise
     ...(isDevelopment ? [] : ["report-uri /api/csp-report"])
   ].join('; ');
-
   // Essential security headers
   response.headers.set('Content-Security-Policy', csp);
+  response.headers.set('X-Nonce', nonce); // Pass nonce to components
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-XSS-Protection', '1; mode=block');
