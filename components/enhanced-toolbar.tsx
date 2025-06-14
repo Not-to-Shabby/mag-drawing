@@ -24,7 +24,8 @@ import {
   Plus,
   Trash2,
   MoveUp,
-  MoveDown
+  MoveDown,
+  StickyNote
 } from 'lucide-react';
 import { DrawingTool, BrushType, ToolConfig } from '../lib/drawing-tools';
 import { LayerState } from '../lib/layer-management';
@@ -41,6 +42,7 @@ interface EnhancedToolbarProps {
   onLayerRemove: (layerId: string) => void;
   onLayerMove: (layerId: string, direction: 'up' | 'down') => void;
   onLayerOpacityChange: (layerId: string, opacity: number) => void;
+  isDarkMode?: boolean;
 }
 
 export function EnhancedToolbar({
@@ -54,7 +56,8 @@ export function EnhancedToolbar({
   onLayerAdd,
   onLayerRemove,
   onLayerMove,
-  onLayerOpacityChange
+  onLayerOpacityChange,
+  isDarkMode = true // eslint-disable-line @typescript-eslint/no-unused-vars
 }: EnhancedToolbarProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showLayerPanel, setShowLayerPanel] = useState(false);
@@ -66,7 +69,6 @@ export function EnhancedToolbar({
     '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6b7280',
     '#000000', '#ffffff', '#dc2626', '#059669', '#7c3aed'
   ];
-
   // Drawing tools configuration
   const drawingTools: Array<{ tool: DrawingTool; icon: React.ReactNode; label: string }> = [
     { tool: 'select', icon: <MousePointer size={16} />, label: 'Select' },
@@ -77,6 +79,7 @@ export function EnhancedToolbar({
     { tool: 'triangle', icon: <Triangle size={16} />, label: 'Triangle' },
     { tool: 'arrow', icon: <ArrowRight size={16} />, label: 'Arrow' },
     { tool: 'text', icon: <Type size={16} />, label: 'Text' },
+    { tool: 'sticky-note', icon: <StickyNote size={16} />, label: 'Sticky Note' },
     { tool: 'eraser', icon: <Eraser size={16} />, label: 'Eraser' }
   ];
 
@@ -98,7 +101,7 @@ export function EnhancedToolbar({
   const sortedLayers = [...layers].sort((a, b) => b.z_index - a.z_index);
 
   return (
-    <div className="flex flex-col space-y-4 p-4 bg-white border-r border-gray-200 w-80 h-full overflow-y-auto">
+    <div className="flex flex-col space-y-4 p-4 bg-background border-r border-border w-80 h-full overflow-y-auto">
       {/* Drawing Tools Section */}
       <Card className="p-4">
         <h3 className="text-sm font-medium mb-3">Drawing Tools</h3>
@@ -121,7 +124,7 @@ export function EnhancedToolbar({
         {/* Brush Type Selection */}
         {toolConfig.tool === 'pen' && (
           <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">Brush Type</label>
+            <label className="text-xs font-medium text-muted-foreground mb-2 block">Brush Type</label>
             <div className="grid grid-cols-2 gap-2">
               {brushTypes.map(({ type, icon, label }) => (
                 <Button
@@ -139,9 +142,8 @@ export function EnhancedToolbar({
           </div>
         )}
 
-        {/* Brush Size */}
-        <div className="mb-4">
-          <label className="text-xs font-medium text-gray-700 mb-2 block">
+        {/* Brush Size */}        <div className="mb-4">
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">
             Size: {toolConfig.brushSize}px
           </label>
           <Slider
@@ -154,9 +156,8 @@ export function EnhancedToolbar({
           />
         </div>
 
-        {/* Opacity */}
-        <div className="mb-4">
-          <label className="text-xs font-medium text-gray-700 mb-2 block">
+        {/* Opacity */}        <div className="mb-4">
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">
             Opacity: {Math.round(toolConfig.opacity * 100)}%
           </label>
           <Slider
@@ -169,12 +170,11 @@ export function EnhancedToolbar({
           />
         </div>
 
-        {/* Color Selection */}
-        <div className="mb-4">
-          <label className="text-xs font-medium text-gray-700 mb-2 block">Stroke Color</label>
+        {/* Color Selection */}        <div className="mb-4">
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">Stroke Color</label>
           <div className="flex items-center gap-2 mb-2">
             <div
-              className="w-8 h-8 rounded border-2 border-gray-300 cursor-pointer"
+              className="w-8 h-8 rounded border-2 border-border cursor-pointer"
               style={{ backgroundColor: toolConfig.strokeColor }}
               onClick={() => setShowColorPicker(!showColorPicker)}
             />
@@ -193,11 +193,10 @@ export function EnhancedToolbar({
           </div>
           
           {showColorPicker && (
-            <div className="grid grid-cols-5 gap-1 mb-2">
-              {predefinedColors.map((color) => (
+            <div className="grid grid-cols-5 gap-1 mb-2">              {predefinedColors.map((color) => (
                 <div
                   key={color}
-                  className="w-6 h-6 rounded cursor-pointer border border-gray-300 hover:scale-110 transition-transform"
+                  className="w-6 h-6 rounded cursor-pointer border border-border hover:scale-110 transition-transform"
                   style={{ backgroundColor: color }}
                   onClick={() => {
                     onToolConfigChange({ strokeColor: color });
@@ -210,9 +209,8 @@ export function EnhancedToolbar({
         </div>
 
         {/* Fill Color for Shapes */}
-        {['rectangle', 'circle', 'ellipse', 'triangle'].includes(toolConfig.tool) && (
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 mb-2 block">Fill Color</label>
+        {['rectangle', 'circle', 'ellipse', 'triangle'].includes(toolConfig.tool) && (          <div className="mb-4">
+            <label className="text-xs font-medium text-muted-foreground mb-2 block">Fill Color</label>
             <div className="flex items-center gap-2">
               <Button
                 variant={toolConfig.fillColor ? "default" : "outline"}
@@ -223,7 +221,7 @@ export function EnhancedToolbar({
               </Button>
               {toolConfig.fillColor && (
                 <div
-                  className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+                  className="w-6 h-6 rounded border border-border cursor-pointer"
                   style={{ backgroundColor: toolConfig.fillColor }}
                   onClick={() => setShowColorPicker(!showColorPicker)}
                 />
@@ -272,11 +270,10 @@ export function EnhancedToolbar({
             <div className="max-h-64 overflow-y-auto space-y-1">
               {sortedLayers.map((layer) => (
                 <div
-                  key={layer.id}
-                  className={`flex items-center gap-2 p-2 rounded border ${
+                  key={layer.id}                  className={`flex items-center gap-2 p-2 rounded border ${
                     layer.id === activeLayerId 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-200 hover:bg-gray-50'
+                      ? 'border-primary bg-primary/10' 
+                      : 'border-border hover:bg-accent/50'
                   }`}
                 >
                   {/* Layer Name */}
@@ -348,9 +345,8 @@ export function EnhancedToolbar({
             </div>
 
             {/* Layer Opacity for Active Layer */}
-            {activeLayerId && (
-              <div className="pt-2 border-t">
-                <label className="text-xs font-medium text-gray-700 mb-2 block">
+            {activeLayerId && (              <div className="pt-2 border-t border-border">
+                <label className="text-xs font-medium text-muted-foreground mb-2 block">
                   Layer Opacity: {Math.round((layers.find(l => l.id === activeLayerId)?.opacity || 1) * 100)}%
                 </label>
                 <Slider

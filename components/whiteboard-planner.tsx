@@ -79,7 +79,6 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   // Plan state
   // const [planId, setPlanId] = useState<string | null>(null); // Removed
   const [planUuid, setPlanUuid] = useState<string | null>(null); // Added
-
   // Drawing tools and layer management
   const { toolConfig, updateToolConfig } = useDrawingTools();
   const {
@@ -91,15 +90,119 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     // toggleLayerLock, // Removed
     updateLayer, // Contains functionality for opacity, visibility, lock, name, z_index
     // moveLayer, // This functionality can be part of updateLayer (z_index)
-    setActiveLayerId,
+    setActiveLayerId
     // updateLayer // Added - This was a duplicate, removed
-  } = useLayerManagement(token, planUuid); 
+  } = useLayerManagement(token, planUuid);
+  
   // Existing state
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [drawings, setDrawings] = useState<DrawingPath[]>([]);
-  const [shapes] = useState<EnhancedShape[]>([]);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [shapes, setShapes] = useState<EnhancedShape[]>([
+    // Sample shapes for testing selection
+    {
+      id: 'test-rect-1',
+      type: 'rectangle',
+      x: 100,
+      y: 100,
+      width: 150,
+      height: 100,
+      rotation: 0,
+      strokeColor: '#3b82f6',
+      fillColor: '#dbeafe',
+      strokeWidth: 2,
+      opacity: 1,
+      zIndex: 1,
+      layer_id: undefined
+    },
+    {
+      id: 'test-circle-1',
+      type: 'circle',
+      x: 300,
+      y: 150,
+      width: 80,
+      height: 80,
+      rotation: 0,
+      strokeColor: '#ef4444',
+      fillColor: '#fecaca',
+      strokeWidth: 2,
+      opacity: 1,
+      zIndex: 2,
+      layer_id: undefined
+    },    {
+      id: 'test-text-1',
+      type: 'text',
+      x: 150,
+      y: 250,
+      width: 200,
+      height: 30,
+      rotation: 0,
+      strokeColor: '#10b981',
+      strokeWidth: 1,
+      opacity: 1,
+      text: 'Click to select me!',
+      fontSize: 16,
+      fontFamily: 'Inter',
+      zIndex: 3,
+      layer_id: undefined
+    },
+    {
+      id: 'test-triangle-1',
+      type: 'triangle',
+      x: 450,
+      y: 100,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      strokeColor: '#f59e0b',
+      fillColor: '#fef3c7',
+      strokeWidth: 2,
+      opacity: 1,
+      zIndex: 4,
+      layer_id: undefined
+    },    {
+      id: 'test-arrow-1',
+      type: 'arrow',
+      x: 100,
+      y: 320,
+      width: 150,
+      height: 60,
+      rotation: 0,
+      strokeColor: '#8b5cf6',
+      strokeWidth: 3,
+      opacity: 1,      zIndex: 5,
+      layer_id: undefined
+    },
+    {
+      id: 'test-sticky-1',
+      type: 'sticky-note',
+      x: 350,
+      y: 280,
+      width: 150,
+      height: 120,
+      rotation: 0,
+      strokeColor: '#d97706',
+      fillColor: '#fef08a',
+      strokeWidth: 2,
+      opacity: 1,
+      text: 'Remember to test all features!',
+      fontSize: 14,
+      fontFamily: 'Inter',
+      zIndex: 6,
+      layer_id: undefined
+    }
+  ]);
+  
+  const [selectedShapes, setSelectedShapes] = useState<EnhancedShape[]>([]);
+  const [isDrawing, setIsDrawing] = useState(false);  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [resizeStartPos, setResizeStartPos] = useState<{ x: number; y: number } | null>(null);
+  const [originalShapeSize, setOriginalShapeSize] = useState<{ x: number; y: number; width: number; height: number } | null>(null);  const [isRotating, setIsRotating] = useState(false);
+  const [rotationStartPos, setRotationStartPos] = useState<{ x: number; y: number } | null>(null);
   const [currentPath, setCurrentPath] = useState<DrawingPath | null>(null);
+  const [editingShape, setEditingShape] = useState<EnhancedShape | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
   const [selectedTool, setSelectedTool] = useState<'draw' | 'destination'>('draw');
   const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
   const [drawColor, setDrawColor] = useState('#3b82f6');
@@ -109,12 +212,248 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [planExists, setPlanExists] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [planTitle, setPlanTitle] = useState('Untitled Travel Plan');
-  const [shapeDrawer, setShapeDrawer] = useState<ShapeDrawer | null>(null);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false); // Autosave disabled by default
+  const [planTitle, setPlanTitle] = useState('Untitled Travel Plan');  const [shapeDrawer, setShapeDrawer] = useState<ShapeDrawer | null>(null);  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false); // Autosave disabled by default
   const [autoSaving, setAutoSaving] = useState(false); // Track autosave status
-
+  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/plan/${token}` : '';
+
+  // Resize handle utilities
+  const getResizeHandles = (shape: EnhancedShape) => {
+    const padding = 8;
+    const handleSize = 8;
+    const width = shape.width || 100;
+    const height = shape.height || 100;
+    
+    return {
+      'nw': { x: shape.x - padding, y: shape.y - padding, size: handleSize }, // Top-left
+      'n': { x: shape.x + width / 2 - handleSize / 2, y: shape.y - padding, size: handleSize }, // Top-center
+      'ne': { x: shape.x + width + padding - handleSize, y: shape.y - padding, size: handleSize }, // Top-right
+      'w': { x: shape.x - padding, y: shape.y + height / 2 - handleSize / 2, size: handleSize }, // Left-center
+      'e': { x: shape.x + width + padding - handleSize, y: shape.y + height / 2 - handleSize / 2, size: handleSize }, // Right-center
+      'sw': { x: shape.x - padding, y: shape.y + height + padding - handleSize, size: handleSize }, // Bottom-left
+      's': { x: shape.x + width / 2 - handleSize / 2, y: shape.y + height + padding - handleSize, size: handleSize }, // Bottom-center
+      'se': { x: shape.x + width + padding - handleSize, y: shape.y + height + padding - handleSize, size: handleSize }, // Bottom-right
+    };
+  };
+  const getResizeHandleAtPoint = (x: number, y: number, shape: EnhancedShape): string | null => {
+    const handles = getResizeHandles(shape);
+    const tolerance = 4; // Extra tolerance for easier clicking
+    
+    for (const [handleName, handle] of Object.entries(handles)) {
+      if (x >= handle.x - tolerance && 
+          x <= handle.x + handle.size + tolerance &&
+          y >= handle.y - tolerance && 
+          y <= handle.y + handle.size + tolerance) {
+        return handleName;
+      }
+    }
+    return null;
+  };
+
+  const getRotationHandle = (shape: EnhancedShape) => {
+    const padding = 8;
+    const handleSize = 8;
+    const width = shape.width || 100;
+    const rotationHandleDistance = 25; // Distance above the shape
+    
+    return {
+      x: shape.x + width / 2 - handleSize / 2,
+      y: shape.y - padding - rotationHandleDistance,
+      size: handleSize
+    };
+  };
+
+  const isPointOnRotationHandle = (x: number, y: number, shape: EnhancedShape): boolean => {
+    const handle = getRotationHandle(shape);
+    const tolerance = 4;
+    
+    return x >= handle.x - tolerance && 
+           x <= handle.x + handle.size + tolerance &&
+           y >= handle.y - tolerance && 
+           y <= handle.y + handle.size + tolerance;
+  };
+
+  const calculateNewSize = (
+    handle: string, 
+    startPos: { x: number; y: number }, 
+    currentPos: { x: number; y: number },
+    originalShape: { x: number; y: number; width: number; height: number }
+  ) => {
+    const deltaX = currentPos.x - startPos.x;
+    const deltaY = currentPos.y - startPos.y;
+    
+    let newX = originalShape.x;
+    let newY = originalShape.y;
+    let newWidth = originalShape.width;
+    let newHeight = originalShape.height;
+    
+    // Minimum size constraints
+    const minSize = 10;
+    
+    switch (handle) {
+      case 'nw': // Top-left
+        newX = Math.min(originalShape.x + deltaX, originalShape.x + originalShape.width - minSize);
+        newY = Math.min(originalShape.y + deltaY, originalShape.y + originalShape.height - minSize);
+        newWidth = Math.max(originalShape.width - deltaX, minSize);
+        newHeight = Math.max(originalShape.height - deltaY, minSize);
+        break;
+      case 'n': // Top-center
+        newY = Math.min(originalShape.y + deltaY, originalShape.y + originalShape.height - minSize);
+        newHeight = Math.max(originalShape.height - deltaY, minSize);
+        break;
+      case 'ne': // Top-right
+        newY = Math.min(originalShape.y + deltaY, originalShape.y + originalShape.height - minSize);
+        newWidth = Math.max(originalShape.width + deltaX, minSize);
+        newHeight = Math.max(originalShape.height - deltaY, minSize);
+        break;
+      case 'w': // Left-center
+        newX = Math.min(originalShape.x + deltaX, originalShape.x + originalShape.width - minSize);
+        newWidth = Math.max(originalShape.width - deltaX, minSize);
+        break;
+      case 'e': // Right-center
+        newWidth = Math.max(originalShape.width + deltaX, minSize);
+        break;
+      case 'sw': // Bottom-left
+        newX = Math.min(originalShape.x + deltaX, originalShape.x + originalShape.width - minSize);
+        newWidth = Math.max(originalShape.width - deltaX, minSize);
+        newHeight = Math.max(originalShape.height + deltaY, minSize);
+        break;
+      case 's': // Bottom-center
+        newHeight = Math.max(originalShape.height + deltaY, minSize);
+        break;
+      case 'se': // Bottom-right
+        newWidth = Math.max(originalShape.width + deltaX, minSize);
+        newHeight = Math.max(originalShape.height + deltaY, minSize);
+        break;
+    }
+      return { x: newX, y: newY, width: newWidth, height: newHeight };
+  };
+
+  const calculateRotationAngle = (
+    centerX: number, 
+    centerY: number, 
+    currentX: number, 
+    currentY: number
+  ): number => {
+    const deltaX = currentX - centerX;
+    const deltaY = currentY - centerY;
+    return (Math.atan2(deltaY, deltaX) * 180) / Math.PI;
+  };
+
+  // Shape hit detection utilities
+  const isPointInShape = (x: number, y: number, shape: EnhancedShape): boolean => {
+    const tolerance = 5; // Hit detection tolerance in pixels
+    
+    switch (shape.type) {
+      case 'rectangle':
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + (shape.width || 100) + tolerance) &&
+               y >= (shape.y - tolerance) && 
+               y <= (shape.y + (shape.height || 100) + tolerance);
+               
+      case 'circle':
+        const radius = Math.min(shape.width || 100, shape.height || 100) / 2;
+        const centerX = shape.x + radius;
+        const centerY = shape.y + radius;
+        const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+        return distance <= radius + tolerance;
+        
+      case 'ellipse':
+        const radiusX = (shape.width || 100) / 2;
+        const radiusY = (shape.height || 100) / 2;
+        const ellipseCenterX = shape.x + radiusX;
+        const ellipseCenterY = shape.y + radiusY;
+        const ellipseDistance = Math.pow((x - ellipseCenterX) / radiusX, 2) + Math.pow((y - ellipseCenterY) / radiusY, 2);
+        return ellipseDistance <= 1.1; // Slightly larger for easier selection      case 'text':
+        // Simple bounding box for text
+        const textWidth = (shape.text?.length || 1) * (shape.fontSize || 16) * 0.6;
+        const textHeight = shape.fontSize || 16;
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + textWidth + tolerance) &&
+               y >= (shape.y - textHeight - tolerance) && 
+               y <= (shape.y + tolerance);
+      
+      case 'sticky-note':
+        // Simple bounding box for sticky note
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + (shape.width || 150) + tolerance) &&
+               y >= (shape.y - tolerance) && 
+               y <= (shape.y + (shape.height || 120) + tolerance);
+      
+      case 'triangle':
+        // Simple bounding box for triangle (can be improved with proper triangle hit detection)
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + (shape.width || 100) + tolerance) &&
+               y >= (shape.y - tolerance) && 
+               y <= (shape.y + (shape.height || 100) + tolerance);
+        case 'arrow':
+        // Simple bounding box for arrow (can be improved with proper arrow hit detection)
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + (shape.width || 120) + tolerance) &&
+               y >= (shape.y - tolerance) && 
+               y <= (shape.y + (shape.height || 60) + tolerance);
+      
+      case 'line':
+        // Line hit detection - slightly thicker area for easier selection
+        const lineWidth = shape.width || 100;
+        const lineThickness = Math.max(shape.strokeWidth || 2, 8); // Minimum 8px for easier selection
+        return x >= (shape.x - tolerance) && 
+               x <= (shape.x + lineWidth + tolerance) &&
+               y >= (shape.y - lineThickness/2 - tolerance) && 
+               y <= (shape.y + lineThickness/2 + tolerance);
+               
+      default:
+        return false;
+    }
+  };
+
+  const getShapeAtPoint = (x: number, y: number): EnhancedShape | null => {
+    // Check shapes in reverse z-index order (top to bottom)
+    const sortedShapes = [...shapes].sort((a, b) => b.zIndex - a.zIndex);
+    
+    for (const shape of sortedShapes) {
+      if (isPointInShape(x, y, shape)) {
+        return shape;
+      }
+    }
+    return null;
+  };
+
+  const selectShape = (shape: EnhancedShape | null) => {
+    if (!shape) {
+      setSelectedShapes([]);
+      return;
+    }
+      setSelectedShapes([shape]);
+  };
+
+  // Keyboard event handler
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      if (selectedShapes.length > 0) {
+        // Remove selected shapes from the shapes array
+        setShapes(prevShapes => 
+          prevShapes.filter(shape => !selectedShapes.some(selected => selected.id === shape.id))
+        );
+        
+        // Clear selection
+        setSelectedShapes([]);
+        
+        // TODO: Update database - remove shapes from backend
+        // This will be implemented when we connect to the database
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setSelectedShapes([]);
+    }
+  }, [selectedShapes]);
+
+  // Add keyboard event listener
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   const copyToClipboard = async () => {
     try {
@@ -130,9 +469,25 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
 
     const redrawCanvasLocal = () => {
       const ctx = canvas?.getContext('2d');
-      if (!canvas || !ctx) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!canvas || !ctx) return;      ctx.clearRect(0, 0, canvas.width, canvas.height);      // Fill canvas with background color using CSS custom properties
+      const rootElement = document.documentElement;
+      const bgColorValue = getComputedStyle(rootElement).getPropertyValue('--background').trim();
+      
+      // Convert oklch to hex if needed, fallback to appropriate default
+      let finalBgColor = '#ffffff'; // Default light background
+      if (bgColorValue.includes('oklch')) {
+        // Parse oklch values - light mode has high lightness (close to 1), dark mode has low lightness (close to 0)
+        const lightnessmatch = bgColorValue.match(/oklch\(([0-9.]+)/);
+        if (lightnessmatch) {
+          const lightness = parseFloat(lightnessmatch[1]);
+          finalBgColor = lightness > 0.5 ? '#ffffff' : '#0a0a0a';
+        }
+      } else if (bgColorValue.startsWith('#')) {
+        finalBgColor = bgColorValue;
+      }
+        
+      ctx.fillStyle = finalBgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Initialize ShapeDrawer if not already done
       if (!shapeDrawer) {
@@ -188,9 +543,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               opacity: shape.opacity,
               brushType: 'pen' as const,
               strokeStyle: 'solid' as const
-            };
-
-            switch (shape.type) {
+            };            switch (shape.type) {
               case 'rectangle':
                 tempDrawer.drawRectangle(0, 0, shape.width || 100, shape.height || 100, tempConfig);
                 break;
@@ -201,15 +554,130 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               case 'ellipse':
                 tempDrawer.drawEllipse((shape.width || 100) / 2, (shape.height || 100) / 2, (shape.width || 100) / 2, (shape.height || 100) / 2, tempConfig);
                 break;
-              case 'text':
+              case 'triangle':
+                // Draw triangle with three points
+                const width = shape.width || 100;
+                const height = shape.height || 100;
+                tempDrawer.drawTriangle(
+                  width / 2, 0,  // Top point
+                  0, height,     // Bottom left
+                  width, height, // Bottom right
+                  tempConfig
+                );
+                break;              case 'arrow':
+                // Draw arrow from left to right
+                const arrowWidth = shape.width || 120;
+                const arrowHeight = shape.height || 60;
+                tempDrawer.drawArrow(0, arrowHeight / 2, arrowWidth, arrowHeight / 2, tempConfig);
+                break;
+              case 'line':
+                // Draw a straight line
+                const lineWidth = shape.width || 100;
+                tempDrawer.drawLine(0, 0, lineWidth, 0, tempConfig);
+                break;              case 'text':
                 if (shape.text) {
                   tempDrawer.drawText(shape.text, 0, shape.fontSize || 16, { ...tempConfig, fontSize: shape.fontSize, fontFamily: shape.fontFamily });
                 }
                 break;
-            }
-
-            ctx.restore();
+              case 'sticky-note':
+                // Draw sticky note as a rectangle with rounded corners and text
+                tempDrawer.drawRectangle(0, 0, shape.width || 150, shape.height || 120, tempConfig);
+                if (shape.text) {
+                  // Draw text with some padding inside the sticky note
+                  const padding = 10;
+                  ctx.fillStyle = shape.strokeColor;
+                  ctx.font = `${shape.fontSize || 14}px ${shape.fontFamily || 'Inter'}`;
+                  ctx.textAlign = 'left';
+                  ctx.textBaseline = 'top';
+                  
+                  // Simple text wrapping for sticky notes
+                  const maxWidth = (shape.width || 150) - 2 * padding;
+                  const words = shape.text.split(' ');
+                  let line = '';
+                  let y = padding;
+                  const lineHeight = (shape.fontSize || 14) * 1.2;
+                  
+                  for (let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n] + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    const testWidth = metrics.width;
+                    
+                    if (testWidth > maxWidth && n > 0) {
+                      ctx.fillText(line, padding, y);
+                      line = words[n] + ' ';
+                      y += lineHeight;
+                    } else {
+                      line = testLine;
+                    }
+                  }
+                  ctx.fillText(line, padding, y);
+                }
+                break;
+            }ctx.restore();
           });
+      });      // Draw selection indicators for selected shapes
+      selectedShapes.forEach((shape) => {
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        
+        // Draw selection bounding box
+        const padding = 8;
+        ctx.strokeRect(
+          shape.x - padding, 
+          shape.y - padding, 
+          (shape.width || 100) + 2 * padding, 
+          (shape.height || 100) + 2 * padding
+        );
+        
+        // Draw selection handles (small squares at corners and edges)
+        const handleSize = 8;
+        const handles = [
+          // Corners
+          { x: shape.x - padding, y: shape.y - padding }, // Top-left
+          { x: shape.x + (shape.width || 100) + padding - handleSize, y: shape.y - padding }, // Top-right
+          { x: shape.x - padding, y: shape.y + (shape.height || 100) + padding - handleSize }, // Bottom-left
+          { x: shape.x + (shape.width || 100) + padding - handleSize, y: shape.y + (shape.height || 100) + padding - handleSize }, // Bottom-right
+          // Edges
+          { x: shape.x + (shape.width || 100) / 2 - handleSize / 2, y: shape.y - padding }, // Top-center
+          { x: shape.x + (shape.width || 100) / 2 - handleSize / 2, y: shape.y + (shape.height || 100) + padding - handleSize }, // Bottom-center
+          { x: shape.x - padding, y: shape.y + (shape.height || 100) / 2 - handleSize / 2 }, // Left-center
+          { x: shape.x + (shape.width || 100) + padding - handleSize, y: shape.y + (shape.height || 100) / 2 - handleSize / 2 }, // Right-center
+        ];
+        
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#3b82f6';
+        handles.forEach(handle => {
+          ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+          ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+        });
+          // Draw rotation handle
+        const rotationHandle = getRotationHandle(shape);
+        
+        // Draw connecting line from top-center to rotation handle
+        ctx.beginPath();
+        ctx.moveTo(shape.x + (shape.width || 100) / 2, shape.y - padding);
+        ctx.lineTo(rotationHandle.x + handleSize / 2, rotationHandle.y + handleSize / 2);
+        ctx.stroke();
+        
+        // Draw rotation handle as a circle
+        ctx.fillStyle = '#3b82f6';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(
+          rotationHandle.x + handleSize / 2, 
+          rotationHandle.y + handleSize / 2, 
+          handleSize / 2, 
+          0, 
+          2 * Math.PI
+        );
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.restore();
       });
 
       // Reset global alpha
@@ -225,7 +693,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     return () => window.removeEventListener('resize', resizeCanvas);
-  }, [drawings, shapes, layers, shapeDrawer]);
+  }, [drawings, shapes, layers, shapeDrawer, selectedShapes, isDarkMode]);
   // Helper function to redraw canvas
   const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -296,17 +764,98 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       updateLayer(layerId, { locked: !layer.locked });
     }
   };
-
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const y = e.clientY - rect.top;    // Handle shape selection when using select tool
+    if (toolConfig.tool === 'select') {
+      // First check if clicking on a resize handle of a selected shape
+      if (selectedShapes.length > 0) {
+        const selectedShape = selectedShapes[0]; // For now, handle single selection
+          // Check for rotation handle click
+        if (isPointOnRotationHandle(x, y, selectedShape)) {
+          // Start rotation operation
+          setIsRotating(true);
+          setRotationStartPos({ x, y });
+          return;
+        }
+        
+        // Check for resize handle click
+        const handleName = getResizeHandleAtPoint(x, y, selectedShape);
+        
+        if (handleName) {
+          // Start resize operation
+          setIsResizing(true);
+          setResizeHandle(handleName);
+          setResizeStartPos({ x, y });
+          setOriginalShapeSize({
+            x: selectedShape.x,
+            y: selectedShape.y,
+            width: selectedShape.width || 100,
+            height: selectedShape.height || 100
+          });
+          return;
+        }
+      }
+        const clickedShape = getShapeAtPoint(x, y);
+      
+      if (clickedShape) {
+        // If clicking on a shape
+        if (e.ctrlKey || e.metaKey) {
+          // Multi-select with Ctrl/Cmd key
+          if (selectedShapes.some(s => s.id === clickedShape.id)) {
+            // Deselect if already selected
+            setSelectedShapes(prevSelected => prevSelected.filter(s => s.id !== clickedShape.id));
+          } else {
+            // Add to selection
+            setSelectedShapes(prevSelected => [...prevSelected, clickedShape]);
+          }
+        } else {
+          // Single select (replace current selection)
+          if (selectedShapes.length === 0 || !selectedShapes.some(s => s.id === clickedShape.id)) {
+            selectShape(clickedShape);
+          }
+        }
+        
+        // Start dragging the selected shape(s) only if not multi-selecting
+        if (!e.ctrlKey && !e.metaKey) {
+          setIsDragging(true);
+          setDragStartPos({ x, y });
+          
+          // Calculate offset from click point to shape origin
+          setDragOffset({
+            x: x - clickedShape.x,
+            y: y - clickedShape.y
+          });
+        }
+      } else {
+        // Clicking on empty space - deselect all unless Ctrl/Cmd is held
+        if (!e.ctrlKey && !e.metaKey) {
+          selectShape(null);
+        }
+      }
+      return;
+    }
 
-    // Handle enhanced drawing tools
-    if (toolConfig.tool === 'pen' || toolConfig.tool === 'line') {
+    // Handle eraser tool
+    if (toolConfig.tool === 'eraser') {
+      const clickedShape = getShapeAtPoint(x, y);
+      if (clickedShape) {
+        // Remove the clicked shape
+        setShapes(prevShapes => prevShapes.filter(shape => shape.id !== clickedShape.id));
+        console.log(`Erased shape: ${clickedShape.type}`);
+      }
+      return;
+    }
+
+    // Clear selection when using other tools
+    if (selectedShapes.length > 0) {
+      setSelectedShapes([]);
+    }    // Handle enhanced drawing tools
+    if (toolConfig.tool === 'pen') {
       setIsDrawing(true);
       const newPath: DrawingPath = {
         id: Date.now().toString(),
@@ -319,27 +868,172 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         smoothing: 0.5, // Added default smoothing
       };
       setCurrentPath(newPath);
-    } else if (toolConfig.tool === 'rectangle' || toolConfig.tool === 'circle' || toolConfig.tool === 'ellipse') {
-      // Handle shape tools - start shape creation
-      setIsDrawing(true);
-      // We'll implement shape creation logic here
-      console.log(`Starting ${toolConfig.tool} creation at:`, { x, y });
+    } else if (toolConfig.tool === 'line') {
+      // Handle line tool - create a straight line shape
+      const newShape: EnhancedShape = {
+        id: `line-${Date.now()}`,
+        type: 'line',
+        x: x,
+        y: y,
+        width: 100, // Default length
+        height: 2,  // Line thickness visual
+        rotation: 0,
+        strokeColor: toolConfig.strokeColor,
+        strokeWidth: toolConfig.brushSize,
+        opacity: toolConfig.opacity,
+        zIndex: shapes.length + 1,
+        layer_id: activeLayerId || undefined
+      };
+      
+      setShapes(prevShapes => [...prevShapes, newShape]);
+      console.log(`Created line at:`, { x, y });    } else if (toolConfig.tool === 'rectangle' || toolConfig.tool === 'circle' || toolConfig.tool === 'ellipse' || toolConfig.tool === 'text' || toolConfig.tool === 'triangle' || toolConfig.tool === 'arrow' || toolConfig.tool === 'sticky-note') {
+      // Handle shape tools - create shape immediately
+      const newShape: EnhancedShape = {
+        id: `${toolConfig.tool}-${Date.now()}`,
+        type: toolConfig.tool,
+        x: x - 50, // Center the shape on click point
+        y: y - 50,
+        width: toolConfig.tool === 'circle' ? 100 : (toolConfig.tool === 'arrow' ? 120 : (toolConfig.tool === 'sticky-note' ? 150 : 100)),
+        height: toolConfig.tool === 'circle' ? 100 : (toolConfig.tool === 'text' ? 30 : (toolConfig.tool === 'arrow' ? 60 : (toolConfig.tool === 'sticky-note' ? 120 : 100))),
+        rotation: 0,
+        strokeColor: toolConfig.strokeColor,
+        fillColor: toolConfig.tool === 'sticky-note' ? '#fef08a' : toolConfig.fillColor, // Yellow for sticky notes
+        strokeWidth: toolConfig.brushSize,
+        opacity: toolConfig.opacity,
+        text: (toolConfig.tool === 'text' || toolConfig.tool === 'sticky-note') ? (toolConfig.tool === 'sticky-note' ? 'Sticky Note' : 'New Text') : undefined,
+        fontSize: (toolConfig.tool === 'text' || toolConfig.tool === 'sticky-note') ? 16 : undefined,
+        fontFamily: (toolConfig.tool === 'text' || toolConfig.tool === 'sticky-note') ? 'Inter' : undefined,
+        zIndex: shapes.length + 1,
+        layer_id: activeLayerId || undefined
+      };
+      
+      setShapes(prevShapes => [...prevShapes, newShape]);
+      console.log(`Created ${toolConfig.tool} at:`, { x, y });
     } else if (selectedTool === 'destination') {
       setNewDestinationPos({ x, y });
       setShowAddDestination(true);
     }
-  };
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !currentPath) return;
-
+  };  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
+    if (!canvas) return;    const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Only update path for pen and line tools
+    // Handle shape rotation
+    if (isRotating && rotationStartPos && selectedShapes.length > 0) {
+      const selectedShape = selectedShapes[0];
+      const centerX = selectedShape.x + (selectedShape.width || 100) / 2;
+      const centerY = selectedShape.y + (selectedShape.height || 100) / 2;
+      
+      const currentAngle = calculateRotationAngle(centerX, centerY, x, y);
+      const newRotation = currentAngle;
+      
+      // Update the selected shape with new rotation
+      setShapes(prevShapes => 
+        prevShapes.map(shape => {
+          if (shape.id === selectedShape.id) {
+            return {
+              ...shape,
+              rotation: newRotation
+            };
+          }
+          return shape;
+        })
+      );
+      
+      // Update selected shapes for visual feedback
+      setSelectedShapes(prevSelected =>
+        prevSelected.map(shape => {
+          if (shape.id === selectedShape.id) {
+            return {
+              ...shape,
+              rotation: newRotation
+            };
+          }
+          return shape;
+        })
+      );
+      
+      return;
+    }
+
+    // Handle shape resizing
+    if (isResizing && resizeHandle && resizeStartPos && originalShapeSize && selectedShapes.length > 0) {
+      const newSize = calculateNewSize(resizeHandle, resizeStartPos, { x, y }, originalShapeSize);
+      
+      // Update the selected shape with new size
+      const selectedShape = selectedShapes[0];
+      setShapes(prevShapes => 
+        prevShapes.map(shape => {
+          if (shape.id === selectedShape.id) {
+            return {
+              ...shape,
+              x: newSize.x,
+              y: newSize.y,
+              width: newSize.width,
+              height: newSize.height
+            };
+          }
+          return shape;
+        })
+      );
+      
+      // Update selected shapes for visual feedback
+      setSelectedShapes(prevSelected =>
+        prevSelected.map(shape => {
+          if (shape.id === selectedShape.id) {
+            return {
+              ...shape,
+              x: newSize.x,
+              y: newSize.y,
+              width: newSize.width,
+              height: newSize.height
+            };
+          }
+          return shape;
+        })
+      );
+      
+      return;
+    }
+
+    // Handle shape dragging
+    if (isDragging && selectedShapes.length > 0 && dragOffset && dragStartPos) {
+      const deltaX = x - dragStartPos.x;
+      const deltaY = y - dragStartPos.y;
+      
+      // Update positions of all selected shapes
+      setShapes(prevShapes => 
+        prevShapes.map(shape => {
+          if (selectedShapes.some(s => s.id === shape.id)) {
+            return {
+              ...shape,
+              x: shape.x + deltaX,
+              y: shape.y + deltaY
+            };
+          }
+          return shape;
+        })
+      );
+      
+      // Update selected shapes positions for visual feedback
+      setSelectedShapes(prevSelected =>
+        prevSelected.map(shape => ({
+          ...shape,
+          x: shape.x + deltaX,
+          y: shape.y + deltaY
+        }))
+      );
+      
+      // Update drag start position for next move
+      setDragStartPos({ x, y });
+      return;
+    }
+
+    // Handle pen drawing
+    if (!isDrawing || !currentPath) return;
+
+    // Only update path for pen tool
     if (toolConfig.tool === 'pen') {
       const updatedPath = {
         ...currentPath,
@@ -386,7 +1080,40 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         ctx.setLineDash([]);
       }
     }
-  };  const handleCanvasMouseUp = async () => {
+  };  const handleCanvasMouseUp = async () => {    // Handle rotation completion
+    if (isRotating) {
+      setIsRotating(false);
+      setRotationStartPos(null);
+      
+      // TODO: Save shape rotation to database
+      console.log('Rotation completed - shape rotated');
+      return;
+    }
+
+    // Handle resize completion
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeHandle(null);
+      setResizeStartPos(null);
+      setOriginalShapeSize(null);
+      
+      // TODO: Save shape size to database
+      console.log('Resize completed - shape resized');
+      return;
+    }
+
+    // Handle drag completion
+    if (isDragging) {
+      setIsDragging(false);
+      setDragStartPos(null);
+      setDragOffset(null);
+      
+      // TODO: Save shape positions to database
+      console.log('Drag completed - shapes moved');
+      return;
+    }
+
+    // Handle pen drawing completion
     if (isDrawing && currentPath) {
       const newDrawings = [...drawings, currentPath];
       setDrawings(newDrawings);
@@ -403,8 +1130,67 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           setAutoSaving(false);
         }
       }
+    }    setIsDrawing(false);
+  };
+  const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault(); // Prevent default double-click behavior
+    e.stopPropagation();
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Only handle double-click in select mode
+    if (toolConfig.tool !== 'select') return;
+
+    const clickedShape = getShapeAtPoint(x, y);
+    
+    if (clickedShape && (clickedShape.type === 'text' || clickedShape.type === 'sticky-note')) {
+      // Start editing the text
+      setEditingShape(clickedShape);
+      setEditingText(clickedShape.text || '');      selectShape(clickedShape); // Ensure shape is selected
     }
-    setIsDrawing(false);
+  };
+
+  const handleTextEditComplete = (save: boolean = true) => {
+    if (!editingShape) return;
+
+    if (save && editingText.trim()) {
+      // Update the shape with new text
+      setShapes(prevShapes => 
+        prevShapes.map(shape => 
+          shape.id === editingShape.id 
+            ? { ...shape, text: editingText.trim() }
+            : shape
+        )
+      );
+
+      // Update selected shapes as well
+      setSelectedShapes(prevSelected =>
+        prevSelected.map(shape => 
+          shape.id === editingShape.id 
+            ? { ...shape, text: editingText.trim() }
+            : shape
+        )
+      );
+    }
+
+    // Clear editing state
+    setEditingShape(null);
+    setEditingText('');
+  };
+
+  const handleTextEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation(); // Prevent event bubbling
+    
+    if (e.key === 'Enter') {
+      handleTextEditComplete(true);
+    } else if (e.key === 'Escape') {
+      handleTextEditComplete(false);
+    }
   };
   const addDestination = async (name: string, notes: string) => {
     try {
@@ -723,46 +1509,46 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   // Save autosave preference to localStorage when it changes
   useEffect(() => {
     localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));
-  }, [autoSaveEnabled]);
-
-  // Show loading state
+  }, [autoSaveEnabled]);  // Show loading state
   if (isLoading) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Travel Plan...</h2>
-          <p className="text-gray-600">Token: {token}</p>
+      <div className={`h-screen w-full flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
+        <div className="bg-background text-foreground text-center">
+          <h2 className="text-xl font-semibold text-foreground mb-2">Loading Travel Plan...</h2>
+          <p className="text-muted-foreground">Token: {token}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-full flex flex-col bg-gray-50">      {/* Header */}
-      <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">        <div className="flex items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Mag-Drawing</h1>
-            <input
-              type="text"
-              value={planTitle}
-              onChange={(e) => setPlanTitle(e.target.value)}
-              onBlur={(e) => updatePlanTitle(e.target.value)}
-              className="text-lg font-medium text-gray-700 bg-transparent border-none outline-none focus:bg-white focus:border focus:border-gray-300 focus:rounded px-2 py-1"
-              placeholder="Enter plan title..."
-            />
-          </div>
-          <div className="text-sm text-gray-500">
-            Plan Token: <code className="bg-gray-100 px-2 py-1 rounded">{token}</code>
-          </div>
+    <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'dark' : ''}`}>
+      <div className="bg-background text-foreground h-full">
+        {/* Header */}
+        <div className="bg-card border-b border-border p-4 flex items-center justify-between">          <div className="flex items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Mag-Drawing</h1>
+              <input
+                type="text"
+                value={planTitle}
+                onChange={(e) => setPlanTitle(e.target.value)}
+                onBlur={(e) => updatePlanTitle(e.target.value)}
+                className="text-lg font-medium text-foreground bg-transparent border-none outline-none focus:bg-background focus:border focus:border-border focus:rounded px-2 py-1"
+                placeholder="Enter plan title..."
+              />
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Plan Token: <code className="bg-muted text-muted-foreground px-2 py-1 rounded">{token}</code>
+            </div>
         </div>        <div className="flex items-center gap-4">
           {lastSaved && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted-foreground">
               Last saved: {lastSaved.toLocaleTimeString()}
             </span>
           )}
           
           {autoSaving && (
-            <span className="text-xs text-blue-600 animate-pulse">
+            <span className="text-xs text-primary animate-pulse">
               Auto-saving...
             </span>
           )}
@@ -774,21 +1560,35 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           >
             <Save className="h-4 w-4 mr-2" />
             {autoSaving ? 'Saving...' : 'Save'}
-          </Button>          {/* Autosave Toggle */}
-          <div className="flex items-center gap-2">
-            <input
+          </Button>          <div className="flex items-center gap-2">            <input
               type="checkbox"
               id="autosave-toggle"
               checked={autoSaveEnabled}
               onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-            />
-            <label 
+              className="w-4 h-4 text-primary bg-background border-border rounded focus:ring-primary focus:ring-2"
+            /><label 
               htmlFor="autosave-toggle" 
-              className="text-xs text-gray-600 cursor-pointer"
+              className="text-xs text-muted-foreground cursor-pointer"
               title="Automatically save drawings after each stroke"
             >
-              Auto-save
+              Auto-save            </label>
+          </div>
+          
+          {/* Dark Mode Toggle */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="darkmode-toggle"
+              checked={isDarkMode}
+              onChange={(e) => setIsDarkMode(e.target.checked)}
+              className="w-4 h-4 text-primary bg-background border-border rounded focus:ring-primary focus:ring-2"
+            />
+            <label 
+              htmlFor="darkmode-toggle" 
+              className="text-xs text-muted-foreground cursor-pointer"
+              title="Toggle dark mode"
+            >
+              Dark Mode
             </label>
           </div>
           
@@ -865,7 +1665,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 type="color"
                 value={drawColor}
                 onChange={(e) => setDrawColor(e.target.value)}
-                className="w-8 h-8 rounded border-2 border-gray-300"
+                className="w-8 h-8 rounded border-2 border-border"
               />
               <Button variant="outline" size="sm" onClick={clearCanvas}>
                 Clear
@@ -874,8 +1674,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           )}
         </div>
       </div>      <div className="flex-1 flex">
-        {/* Enhanced Toolbar */}
-        <EnhancedToolbar
+        {/* Enhanced Toolbar */}        <EnhancedToolbar
           toolConfig={toolConfig}
           onToolConfigChange={updateToolConfig}
           layers={layers}
@@ -898,18 +1697,46 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               updateLayer(layerId, { opacity });
             }
           }}
-        />
-
-        {/* Main Canvas Area */}
-        <div className="flex-1 relative">
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full bg-white cursor-crosshair"
-            onMouseDown={handleCanvasMouseDown}
+          isDarkMode={isDarkMode}
+        />        {/* Main Canvas Area */}
+        <div className="flex-1 relative">          <canvas
+            ref={canvasRef}            className={`w-full h-full bg-background ${
+              toolConfig.tool === 'select' 
+                ? (isRotating 
+                  ? 'cursor-grab'
+                  : isResizing 
+                  ? (resizeHandle === 'nw' || resizeHandle === 'se' ? 'cursor-nw-resize' :
+                     resizeHandle === 'ne' || resizeHandle === 'sw' ? 'cursor-ne-resize' :
+                     resizeHandle === 'n' || resizeHandle === 's' ? 'cursor-ns-resize' :
+                     resizeHandle === 'w' || resizeHandle === 'e' ? 'cursor-ew-resize' : 'cursor-default')
+                  : (isDragging ? 'cursor-grabbing' : 'cursor-pointer'))
+                : toolConfig.tool === 'eraser'
+                ? 'cursor-crosshair'
+                : 'cursor-crosshair'
+            }`}onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}
-          />
+            onMouseLeave={handleCanvasMouseUp}            onDoubleClick={handleCanvasDoubleClick}
+          />          {/* Text Editing Overlay */}
+          {editingShape && (
+            <input
+              type="text"
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              onKeyDown={handleTextEditKeyDown}
+              onBlur={() => handleTextEditComplete(true)}
+              autoFocus
+              className="absolute border-2 border-blue-500 bg-background text-foreground px-2 py-1 text-sm font-medium rounded shadow-lg"
+              style={{
+                left: editingShape.x,
+                top: editingShape.y,
+                width: Math.max(editingShape.width || 100, 150),
+                fontSize: editingShape.fontSize || 16,
+                fontFamily: editingShape.fontFamily || 'Inter',
+                zIndex: 1000,
+              }}
+            />
+          )}
           
           {/* Destination Markers */}
           {destinations.map((dest) => (
@@ -933,7 +1760,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         </div>
 
         {/* Sidebar */}
-        <div className="w-80 bg-white border-l border-gray-200 p-4 overflow-y-auto">
+        <div className="w-80 bg-card border-l border-border p-4 overflow-y-auto">
           <h2 className="text-lg font-semibold mb-4 flex items-center">
             <Calendar className="h-5 w-5 mr-2" />
             Travel Plan
@@ -946,7 +1773,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                   <div className="flex-1">
                     <h3 className="font-medium text-sm">{dest.name}</h3>
                     {dest.notes && (
-                      <p className="text-xs text-gray-600 mt-1">{dest.notes}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{dest.notes}</p>
                     )}
                   </div>
                   <Button
@@ -962,19 +1789,17 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             ))}
             
             {destinations.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 <MapPin className="h-12 w-12 mx-auto mb-2 opacity-50" />                <p className="text-sm">No destinations added yet</p>
                 <p className="text-xs">Click &quot;Add Place&quot; and then click on the canvas</p>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Add Destination Modal */}
+      </div>      {/* Add Destination Modal */}
       {showAddDestination && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="p-6 w-96">
+          <Card className="p-6 w-96 bg-card text-card-foreground">
             <h3 className="text-lg font-semibold mb-4">Add New Destination</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
@@ -985,13 +1810,12 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 addDestination(name, notes);
               }
             }}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Destination Name</label>
+              <div className="space-y-4">                <div>
+                  <label className="block text-sm font-medium mb-1 text-foreground">Destination Name</label>
                   <Input name="name" placeholder="Enter destination name" required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Notes (optional)</label>
+                  <label className="block text-sm font-medium mb-1 text-foreground">Notes (optional)</label>
                   <Textarea name="notes" placeholder="Add notes about this destination" rows={3} />
                 </div>
                 <div className="flex gap-2 pt-2">
@@ -1010,21 +1834,18 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             </form>
           </Card>
         </div>
-      )}
-
-      {/* Share Dialog */}
+      )}      {/* Share Dialog */}
       {showShareDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="p-6 w-96">
+          <Card className="p-6 w-96 bg-card text-card-foreground">
             <h3 className="text-lg font-semibold mb-4">Share Travel Plan</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Share URL</label>
+            <div className="space-y-4">              <div>
+                <label className="block text-sm font-medium mb-1 text-foreground">Share URL</label>
                 <div className="flex gap-2">
                   <Input 
                     value={shareUrl} 
                     readOnly 
-                    className="flex-1 bg-gray-50"
+                    className="flex-1 bg-muted"
                   />
                   <Button 
                     variant="outline" 
@@ -1034,7 +1855,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Anyone with this URL can view and edit your travel plan
                 </p>
               </div>
@@ -1047,9 +1868,9 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                   Close
                 </Button>
               </div>
-            </div>
-          </Card>
+            </div>          </Card>
         </div>      )}
+      </div>
     </div>
   );
 };

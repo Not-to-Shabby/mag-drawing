@@ -45,3 +45,10 @@ next-env.d.ts
 # Test files for development/debugging
 test-*.js
 test.html
+test-darkmode-toggle.html
+test-phase1-complete.html
+test-selection.html
+test-shadcn-darkmode.html
+test-shadcn-implementation.html
+test-shadcn-implementation.html
+test-text-editing-darkmode.html

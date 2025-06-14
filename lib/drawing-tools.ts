@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react';
 import { z } from 'zod';
 
 // Drawing tool types
-export type DrawingTool = 'pen' | 'line' | 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'text' | 'eraser' | 'select';
+export type DrawingTool = 'pen' | 'line' | 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'text' | 'sticky-note' | 'eraser' | 'select';
 export type BrushType = 'pen' | 'marker' | 'highlighter' | 'eraser';
 
 // Tool configuration interface
@@ -19,7 +19,7 @@ export interface ToolConfig {
 
 // Validation schemas
 const toolConfigSchema = z.object({
-  tool: z.enum(['pen', 'line', 'rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'text', 'eraser', 'select']),
+  tool: z.enum(['pen', 'line', 'rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'text', 'sticky-note', 'eraser', 'select']),
   brushSize: z.number().min(1).max(50),
   opacity: z.number().min(0.1).max(1),
   strokeColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
