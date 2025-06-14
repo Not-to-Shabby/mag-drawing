@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
@@ -12,12 +12,12 @@ import {
   getDestinations, 
   createDestination, 
   deleteDestination,
-  getDrawings,
-  createDrawing,
-  deleteAllDrawings,
   createPlan,
   generatePlanName
 } from '../lib/database';
+import { useDrawingTools, ShapeDrawer } from '../lib/drawing-tools';
+import { useLayerManagement } from '../lib/layer-management';
+import { EnhancedToolbar } from './enhanced-toolbar';
 
 interface Destination {
   id: string;
@@ -33,6 +33,40 @@ interface DrawingPath {
   points: { x: number; y: number }[];
   color: string;
   width: number;
+  layer_id?: string;
+  opacity?: number;
+  brush_type?: string;
+  smoothing?: number;
+}
+
+interface EnhancedShape {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  rotation: number;
+  strokeColor: string;
+  fillColor?: string;
+  strokeWidth: number;
+  opacity: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  zIndex: number;
+  layer_id?: string;
+}
+
+interface ApiDrawingData {
+  id: string;
+  path_data: { x: number; y: number }[];
+  color: string;
+  stroke_width: number;
+  layer_id?: string;
+  opacity?: number;
+  brush_type?: string;
+  smoothing?: number;
 }
 
 interface WhiteboardPlannerProps {
@@ -41,12 +75,34 @@ interface WhiteboardPlannerProps {
 
 const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Plan state
+  // const [planId, setPlanId] = useState<string | null>(null); // Removed
+  const [planUuid, setPlanUuid] = useState<string | null>(null); // Added
+
+  // Drawing tools and layer management
+  const { toolConfig, updateToolConfig } = useDrawingTools();
+  const {
+    layers,
+    activeLayerId,
+    addLayer,
+    deleteLayer, // Renamed from removeLayer
+    // toggleLayerVisibility, // Removed
+    // toggleLayerLock, // Removed
+    updateLayer, // Contains functionality for opacity, visibility, lock, name, z_index
+    // moveLayer, // This functionality can be part of updateLayer (z_index)
+    setActiveLayerId,
+    // updateLayer // Added - This was a duplicate, removed
+  } = useLayerManagement(token, planUuid); 
+  // Existing state
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [drawings, setDrawings] = useState<DrawingPath[]>([]);
+  const [shapes] = useState<EnhancedShape[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPath, setCurrentPath] = useState<DrawingPath | null>(null);
   const [selectedTool, setSelectedTool] = useState<'draw' | 'destination'>('draw');
-  const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);  const [drawColor, setDrawColor] = useState('#3b82f6');
+  const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
+  const [drawColor, setDrawColor] = useState('#3b82f6');
   const [showAddDestination, setShowAddDestination] = useState(false);
   const [newDestinationPos, setNewDestinationPos] = useState({ x: 0, y: 0 });
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -54,6 +110,9 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const [planExists, setPlanExists] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [planTitle, setPlanTitle] = useState('Untitled Travel Plan');
+  const [shapeDrawer, setShapeDrawer] = useState<ShapeDrawer | null>(null);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false); // Autosave disabled by default
+  const [autoSaving, setAutoSaving] = useState(false); // Track autosave status
 
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/plan/${token}` : '';
 
@@ -62,9 +121,10 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       await navigator.clipboard.writeText(shareUrl);
       // You could add a toast notification here
     } catch (err) {
-      console.error('Failed to copy URL:', err);
-    }
-  };useEffect(() => {
+      console.error('Failed to copy URL:', err);    }
+  };
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -74,22 +134,86 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw paths
-      drawings.forEach((path) => {
-        if (path.points.length > 1) {
-          ctx.beginPath();
-          ctx.strokeStyle = path.color;
-          ctx.lineWidth = path.width;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          
-          ctx.moveTo(path.points[0].x, path.points[0].y);
-          path.points.slice(1).forEach((point) => {
-            ctx.lineTo(point.x, point.y);
+      // Initialize ShapeDrawer if not already done
+      if (!shapeDrawer) {
+        setShapeDrawer(new ShapeDrawer(ctx));
+      }
+
+      // Get visible layers sorted by z-index
+      const visibleLayers = layers.filter(layer => layer.visible).sort((a, b) => a.z_index - b.z_index);
+
+      // Draw content layer by layer
+      visibleLayers.forEach(layer => {
+        ctx.globalAlpha = layer.opacity;
+
+        // Draw drawings for this layer
+        drawings
+          .filter(drawing => drawing.layer_id === layer.id || (!drawing.layer_id && layer.name === 'Routes'))
+          .forEach((path) => {
+            if (path.points.length > 1) {
+              ctx.beginPath();
+              ctx.strokeStyle = path.color;
+              ctx.lineWidth = path.width;
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              ctx.globalAlpha = (path.opacity || 1) * layer.opacity;
+              
+              ctx.moveTo(path.points[0].x, path.points[0].y);
+              path.points.slice(1).forEach((point) => {
+                ctx.lineTo(point.x, point.y);
+              });
+              ctx.stroke();
+            }
           });
-          ctx.stroke();
-        }
+
+        // Draw shapes for this layer
+        shapes
+          .filter(shape => shape.layer_id === layer.id || (!shape.layer_id && layer.name === 'Background'))
+          .sort((a, b) => a.zIndex - b.zIndex)
+          .forEach((shape) => {
+            ctx.globalAlpha = shape.opacity * layer.opacity;
+            
+            // Apply shape transformation
+            ctx.save();
+            ctx.translate(shape.x + (shape.width || 0) / 2, shape.y + (shape.height || 0) / 2);
+            ctx.rotate((shape.rotation * Math.PI) / 180);
+            ctx.translate(-(shape.width || 0) / 2, -(shape.height || 0) / 2);
+
+            // Draw shape based on type
+            const tempDrawer = new ShapeDrawer(ctx);            const tempConfig = {
+              tool: shape.type as 'rectangle',
+              strokeColor: shape.strokeColor,
+              fillColor: shape.fillColor,
+              brushSize: shape.strokeWidth,
+              opacity: shape.opacity,
+              brushType: 'pen' as const,
+              strokeStyle: 'solid' as const
+            };
+
+            switch (shape.type) {
+              case 'rectangle':
+                tempDrawer.drawRectangle(0, 0, shape.width || 100, shape.height || 100, tempConfig);
+                break;
+              case 'circle':
+                const radius = Math.min(shape.width || 100, shape.height || 100) / 2;
+                tempDrawer.drawCircle(radius, radius, radius, tempConfig);
+                break;
+              case 'ellipse':
+                tempDrawer.drawEllipse((shape.width || 100) / 2, (shape.height || 100) / 2, (shape.width || 100) / 2, (shape.height || 100) / 2, tempConfig);
+                break;
+              case 'text':
+                if (shape.text) {
+                  tempDrawer.drawText(shape.text, 0, shape.fontSize || 16, { ...tempConfig, fontSize: shape.fontSize, fontFamily: shape.fontFamily });
+                }
+                break;
+            }
+
+            ctx.restore();
+          });
       });
+
+      // Reset global alpha
+      ctx.globalAlpha = 1;
     };
 
     const resizeCanvas = () => {
@@ -101,30 +225,76 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     return () => window.removeEventListener('resize', resizeCanvas);
-  }, [drawings]);
-  const redrawCanvas = () => {
+  }, [drawings, shapes, layers, shapeDrawer]);
+  // Helper function to redraw canvas
+  const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw paths
-    drawings.forEach((path) => {
-      if (path.points.length > 1) {
-        ctx.beginPath();
-        ctx.strokeStyle = path.color;
-        ctx.lineWidth = path.width;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        
-        ctx.moveTo(path.points[0].x, path.points[0].y);
-        path.points.slice(1).forEach((point) => {
-          ctx.lineTo(point.x, point.y);
+    // Get visible layers sorted by z-index
+    const visibleLayers = layers.filter(layer => layer.visible).sort((a, b) => a.z_index - b.z_index);
+
+    // Draw content layer by layer
+    visibleLayers.forEach(layer => {
+      ctx.globalAlpha = layer.opacity;
+
+      // Draw drawings for this layer
+      drawings
+        .filter(drawing => drawing.layer_id === layer.id || (!drawing.layer_id && layer.name === 'Routes'))
+        .forEach((path) => {
+          if (path.points.length > 1) {
+            ctx.beginPath();
+            ctx.strokeStyle = path.color;
+            ctx.lineWidth = path.width;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = (path.opacity || 1) * layer.opacity;
+            
+            ctx.moveTo(path.points[0].x, path.points[0].y);
+            path.points.slice(1).forEach((point) => {
+              ctx.lineTo(point.x, point.y);
+            });
+            ctx.stroke();
+          }
         });
-        ctx.stroke();
-      }
+
+      // Draw shapes and destinations here...
+      
+      // Draw destinations
+      destinations.forEach((destination) => {
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = destination.color;
+        ctx.beginPath();
+        ctx.arc(destination.x, destination.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw destination label
+        ctx.fillStyle = '#000';
+        ctx.font = '12px Inter, system-ui, sans-serif';
+        ctx.fillText(destination.name, destination.x + 12, destination.y + 4);
+      });
     });
+
+    // Reset global alpha
+    ctx.globalAlpha = 1;
+  }, [layers, drawings, destinations]);
+  const handleLayerToggleVisibility = (layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (layer && updateLayer) {
+      updateLayer(layerId, { visible: !layer.visible });
+    }
+  };
+
+  const handleLayerToggleLock = (layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (layer && updateLayer) {
+      updateLayer(layerId, { locked: !layer.locked });
+    }
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -135,21 +305,30 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (selectedTool === 'draw') {
+    // Handle enhanced drawing tools
+    if (toolConfig.tool === 'pen' || toolConfig.tool === 'line') {
       setIsDrawing(true);
       const newPath: DrawingPath = {
         id: Date.now().toString(),
         points: [{ x, y }],
-        color: drawColor,
-        width: 2,
+        color: toolConfig.strokeColor,
+        width: toolConfig.brushSize,
+        layer_id: activeLayerId || undefined,
+        opacity: toolConfig.opacity,
+        brush_type: toolConfig.brushType,
+        smoothing: 0.5, // Added default smoothing
       };
       setCurrentPath(newPath);
+    } else if (toolConfig.tool === 'rectangle' || toolConfig.tool === 'circle' || toolConfig.tool === 'ellipse') {
+      // Handle shape tools - start shape creation
+      setIsDrawing(true);
+      // We'll implement shape creation logic here
+      console.log(`Starting ${toolConfig.tool} creation at:`, { x, y });
     } else if (selectedTool === 'destination') {
       setNewDestinationPos({ x, y });
       setShowAddDestination(true);
     }
   };
-
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !currentPath) return;
 
@@ -160,41 +339,68 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const updatedPath = {
-      ...currentPath,
-      points: [...currentPath.points, { x, y }],
-    };
-    setCurrentPath(updatedPath);
+    // Only update path for pen and line tools
+    if (toolConfig.tool === 'pen') {
+      const updatedPath = {
+        ...currentPath,
+        points: [...currentPath.points, { x, y }],
+      };
+      setCurrentPath(updatedPath);
 
-    // Draw the current path in real-time
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.strokeStyle = currentPath.color;
-      ctx.lineWidth = currentPath.width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+      // Draw the current path in real-time
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.strokeStyle = toolConfig.strokeColor;
+        ctx.lineWidth = toolConfig.brushSize;
+        ctx.globalAlpha = toolConfig.opacity;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        if (currentPath.points.length > 1) {
+          const lastPoint = currentPath.points[currentPath.points.length - 2];
+          ctx.beginPath();
+          ctx.moveTo(lastPoint.x, lastPoint.y);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }
+      }
+    } else if (toolConfig.tool === 'line' && currentPath.points.length === 1) {
+      // For line tool, update the end point
+      const updatedPath = {
+        ...currentPath,
+        points: [currentPath.points[0], { x, y }],
+      };
+      setCurrentPath(updatedPath);
       
-      if (currentPath.points.length > 0) {
-        const lastPoint = currentPath.points[currentPath.points.length - 1];
+      // Redraw canvas with preview line
+      redrawCanvas();
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.strokeStyle = toolConfig.strokeColor;
+        ctx.lineWidth = toolConfig.brushSize;
+        ctx.globalAlpha = toolConfig.opacity;
+        ctx.setLineDash(toolConfig.strokeStyle === 'dashed' ? [5, 5] : []);
         ctx.beginPath();
-        ctx.moveTo(lastPoint.x, lastPoint.y);
-        ctx.lineTo(x, y);
+        ctx.moveTo(currentPath.points[0].x, currentPath.points[0].y);        ctx.lineTo(x, y);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
-  };
-  const handleCanvasMouseUp = async () => {
+  };  const handleCanvasMouseUp = async () => {
     if (isDrawing && currentPath) {
       const newDrawings = [...drawings, currentPath];
       setDrawings(newDrawings);
       setCurrentPath(null);
       
-      // Auto-save drawings after completing a stroke
-      if (planExists) {
+      // Auto-save drawings after completing a stroke (only if autosave is enabled)
+      if (planExists && autoSaveEnabled) {
         try {
+          setAutoSaving(true);
           await saveDrawings();
         } catch (error) {
           console.error('Auto-save failed:', error);
+        } finally {
+          setAutoSaving(false);
         }
       }
     }
@@ -276,35 +482,76 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     } catch (error) {
       console.error('Error clearing canvas:', error);
     }
-  };
-  const saveDrawings = async () => {
+  };  const saveDrawings = async () => {
     try {
       if (!planExists) {
         if (process.env.NODE_ENV === 'development') {
           console.log('Working in offline mode - drawings not saved to database');
         }
         return;
-      }
-      
-      const plan = await getPlanByToken(token);
-      if (!plan) {
+      }      // Use API route instead of direct database calls
+      // Filter out invalid drawings (must have at least 1 point and valid color/width)
+      const validDrawings = drawings.filter(drawing => 
+        drawing.points && 
+        drawing.points.length > 0 && 
+        drawing.color && 
+        drawing.width > 0 &&
+        drawing.points.every(point => 
+          typeof point.x === 'number' && 
+          typeof point.y === 'number' && 
+          !isNaN(point.x) && 
+          !isNaN(point.y)
+        )
+      );
+
+      if (validDrawings.length === 0) {
         if (process.env.NODE_ENV === 'development') {
-          console.log('Plan not found - working in offline mode');
+          console.log('No valid drawings to save');
         }
         return;
       }
-      
-      // Clear existing drawings
-      await deleteAllDrawings(plan.id);
-      
-      // Save new drawings
-      for (const drawing of drawings) {
-        await createDrawing(
-          plan.id,
-          drawing.points,
-          drawing.color,
-          drawing.width
-        );
+
+      const drawingsData = validDrawings.map(drawing => ({
+        path_data: drawing.points,
+        color: drawing.color,
+        stroke_width: drawing.width,
+        layer_id: drawing.layer_id,
+        opacity: drawing.opacity,
+        brush_type: drawing.brush_type,
+        smoothing: drawing.smoothing
+      }));
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Saving drawings:', {
+          token,
+          totalDrawings: drawings.length,
+          validDrawings: validDrawings.length,
+          drawingCount: drawingsData.length,
+          firstDrawing: drawingsData[0] ? {
+            pointCount: drawingsData[0].path_data.length,
+            color: drawingsData[0].color,
+            strokeWidth: drawingsData[0].stroke_width,
+            layerId: drawingsData[0].layer_id,
+            opacity: drawingsData[0].opacity,
+            brushType: drawingsData[0].brush_type,
+            smoothing: drawingsData[0].smoothing,
+            firstPoint: drawingsData[0].path_data[0]
+          } : null
+        });
+      }
+
+      const response = await fetch('/api/plans', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token,
+          drawings: drawingsData
+        }),
+      });      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(`Failed to save drawings: ${response.status} ${response.statusText}${errorData ? ` - ${errorData.error}` : ''}`);
       }
       
       setLastSaved(new Date());
@@ -344,6 +591,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           if (plan) {
             setPlanTitle(plan.title || 'Untitled Travel Plan');
             setPlanExists(true);
+            setPlanUuid(plan.id); // Set planUuid
             
             // Load destinations
             const dests = await getDestinations(plan.id);
@@ -357,16 +605,39 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 color: d.color
               })));
             }
-            
-            // Load drawings
-            const drawingsData = await getDrawings(plan.id); // Renamed to avoid conflict
-            if (drawingsData && Array.isArray(drawingsData)) {
-              setDrawings(drawingsData.map(d => ({
-                id: d.id,
-                points: d.path_data,
-                color: d.color,
-                width: d.stroke_width
-              })));
+              // Load drawings via API
+            try {
+              const drawingResponse = await fetch(`/api/plans?token=${token}&drawings=true`);
+              if (drawingResponse.ok) {
+                const drawingsData = await drawingResponse.json();
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('[DEBUG] loadPlan: Raw drawings data from API:', drawingsData);
+                }
+                if (drawingsData && Array.isArray(drawingsData)) {
+                  const mappedDrawings = drawingsData.map((d: ApiDrawingData) => ({ // Use ApiDrawingData type
+                    id: d.id,
+                    points: d.path_data,
+                    color: d.color,
+                    width: d.stroke_width,
+                    layer_id: d.layer_id,
+                    opacity: d.opacity,
+                    brush_type: d.brush_type,
+                    smoothing: d.smoothing
+                  }));
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log('[DEBUG] loadPlan: Mapped drawings for state:', mappedDrawings);
+                  }
+                  setDrawings(mappedDrawings);
+                }
+              } else {
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('Could not load drawings via API, might be empty or error:', drawingResponse.status);
+                }
+              }
+            } catch (drawingError) {
+              if (process.env.NODE_ENV === 'development') {
+                console.error('Error loading drawings via API:', drawingError);
+              }
             }
           } else {
             // This case should ideally not be reached if getPlanByToken throws an error for not found
@@ -377,6 +648,8 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               const newPlan = await createPlan(randomPlanName, 'Automatically created plan', token);
               setPlanTitle(newPlan.title || 'Untitled Travel Plan');
               setPlanExists(true);
+              // setPlanId(newPlan.id); // Removed
+              setPlanUuid(newPlan.id); // Set planUuid
               setLastSaved(new Date());
               if (process.env.NODE_ENV === 'development') {
                 console.log('[DEBUG] loadPlan: Successfully created new plan with token:', token);
@@ -387,17 +660,21 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               }
               setPlanTitle('Untitled Travel Plan (Offline Mode)');
               setPlanExists(false);
+              // setPlanUuid(null); // Explicitly set to null if creation fails
             }
           }
         } catch (fetchError) {
           if (fetchError instanceof Error && fetchError.message.includes('Plan not found')) {
             if (process.env.NODE_ENV === 'development') {
               console.log('[DEBUG] loadPlan: Plan not found, attempting to create a new plan with token:', token);
-            }            try {
+            }
+            try {
               const randomPlanName = generatePlanName();
               const newPlan = await createPlan(randomPlanName, 'Automatically created plan', token);
               setPlanTitle(newPlan.title || 'Untitled Travel Plan');
               setPlanExists(true);
+              // setPlanId(newPlan.id); // Removed
+              setPlanUuid(newPlan.id); // Set planUuid
               setLastSaved(new Date());
               if (process.env.NODE_ENV === 'development') {
                 console.log('[DEBUG] loadPlan: Successfully created new plan after initial fetch failed. Token:', token);
@@ -408,6 +685,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               }
               setPlanTitle('Untitled Travel Plan (Offline Mode)');
               setPlanExists(false);
+              // setPlanUuid(null); // Explicitly set to null if creation fails
             }
           } else {
             if (process.env.NODE_ENV === 'development') {
@@ -416,6 +694,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             // Plan doesn't exist or database not ready, work in offline mode
             setPlanTitle('Untitled Travel Plan (Offline Mode)');
             setPlanExists(false);
+            // setPlanUuid(null); // Explicitly set to null
           }
         }
       } catch (error) { // Outer catch for any other unexpected errors during loading
@@ -424,6 +703,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         }
         setPlanTitle('Untitled Travel Plan (Offline Mode)');
         setPlanExists(false);
+        // setPlanUuid(null); // Explicitly set to null
       } finally {
         setIsLoading(false);
       }
@@ -431,6 +711,19 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
 
     loadPlan();
   }, [token]); // Removed createPlan from dependencies as it's stable
+
+  // Load autosave preference from localStorage
+  useEffect(() => {
+    const savedAutoSavePreference = localStorage.getItem('autosave-enabled');
+    if (savedAutoSavePreference !== null) {
+      setAutoSaveEnabled(JSON.parse(savedAutoSavePreference));
+    }
+  }, []);
+
+  // Save autosave preference to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));
+  }, [autoSaveEnabled]);
 
   // Show loading state
   if (isLoading) {
@@ -461,23 +754,45 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           <div className="text-sm text-gray-500">
             Plan Token: <code className="bg-gray-100 px-2 py-1 rounded">{token}</code>
           </div>
-        </div><div className="flex items-center gap-4">
+        </div>        <div className="flex items-center gap-4">
           {lastSaved && (
             <span className="text-xs text-gray-500">
               Last saved: {lastSaved.toLocaleTimeString()}
             </span>
           )}
           
-          <Button
+          {autoSaving && (
+            <span className="text-xs text-blue-600 animate-pulse">
+              Auto-saving...
+            </span>
+          )}
+            <Button
             variant="outline"
             size="sm"
             onClick={saveDrawings}
-            disabled={isLoading}
+            disabled={isLoading || autoSaving}
           >
             <Save className="h-4 w-4 mr-2" />
-            Save
-          </Button>
-            <Button
+            {autoSaving ? 'Saving...' : 'Save'}
+          </Button>          {/* Autosave Toggle */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="autosave-toggle"
+              checked={autoSaveEnabled}
+              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+            />
+            <label 
+              htmlFor="autosave-toggle" 
+              className="text-xs text-gray-600 cursor-pointer"
+              title="Automatically save drawings after each stroke"
+            >
+              Auto-save
+            </label>
+          </div>
+          
+          <Button
             variant="outline"
             size="sm"
             onClick={async () => {
@@ -558,9 +873,33 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             </div>
           )}
         </div>
-      </div>
+      </div>      <div className="flex-1 flex">
+        {/* Enhanced Toolbar */}
+        <EnhancedToolbar
+          toolConfig={toolConfig}
+          onToolConfigChange={updateToolConfig}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          onLayerSelect={setActiveLayerId}
+          onLayerToggleVisibility={handleLayerToggleVisibility}
+          onLayerToggleLock={handleLayerToggleLock}
+          onLayerAdd={addLayer}
+          onLayerRemove={deleteLayer} // Changed to deleteLayer
+          onLayerMove={(layerId: string, direction: 'up' | 'down') => {
+            const layer = layers.find(l => l.id === layerId);
+            if (layer && updateLayer) {
+              const newZIndex = direction === 'up' ? layer.z_index + 1 : layer.z_index - 1;
+              // Add validation or clamping for z_index if necessary
+              updateLayer(layerId, { z_index: newZIndex });
+            }
+          }}
+          onLayerOpacityChange={(layerId: string, opacity: number) => {
+            if (updateLayer) {
+              updateLayer(layerId, { opacity });
+            }
+          }}
+        />
 
-      <div className="flex-1 flex">
         {/* Main Canvas Area */}
         <div className="flex-1 relative">
           <canvas

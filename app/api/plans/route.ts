@@ -259,10 +259,190 @@ export async function OPTIONS() {
       'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production'
         ? 'https://drawing-plan.vercel.app'
         : '*',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'POST, GET, PUT, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Max-Age': '86400',
       'Cache-Control': 'public, max-age=86400', // Cache preflight for 24 hours
     },
   });
+}
+
+// PUT method for updating drawings
+export async function PUT(request: NextRequest) {
+  try {
+    // Rate limiting
+    const rateLimitResult = rateLimit(request, 20); // Allow 20 drawing saves per minute
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: rateLimitResult.error },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter?.toString() || '60',
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString()
+          }
+        }
+      );
+    }
+
+    const body = await request.json();
+    
+    // Debug logging to see what's being sent
+    if (process.env.NODE_ENV === 'development') {
+      console.log('PUT /api/plans - Raw request body:', {
+        token: body.token,
+        drawingsCount: body.drawings?.length,
+        firstDrawing: body.drawings?.[0] ? {
+          keys: Object.keys(body.drawings[0]),
+          sample: body.drawings[0]
+        } : 'No drawings'
+      });
+    }
+    
+    // Import database functions here to avoid issues
+    const { getPlanByToken, deleteAllDrawings, createEnhancedDrawing } = await import('../../../lib/database');
+    
+    // Validate request - updated to include enhanced fields with more flexible validation
+    const requestSchema = z.object({
+      token: z.string().min(1),
+      drawings: z.array(z.object({
+        path_data: z.array(z.object({
+          x: z.number(),
+          y: z.number()
+        })),
+        color: z.string(),
+        stroke_width: z.number(),
+        layer_id: z.string().optional().nullable(),
+        opacity: z.number().optional().nullable(),
+        brush_type: z.string().optional().nullable(),
+        smoothing: z.number().optional().nullable()
+      }))
+    });
+    
+    let validatedData;
+    try {
+      validatedData = requestSchema.parse(body);
+    } catch (validationError) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('PUT /api/plans - Validation error:', validationError);
+      }
+      return NextResponse.json(
+        { error: 'Invalid request data', details: validationError instanceof Error ? validationError.message : 'Unknown validation error' },
+        { status: 400 }
+      );
+    }
+    
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Received enhanced drawing save request:', {
+        token: validatedData.token,
+        drawingCount: validatedData.drawings.length,
+        firstDrawing: validatedData.drawings[0] ? {
+          pointCount: validatedData.drawings[0].path_data.length,
+          color: validatedData.drawings[0].color,
+          strokeWidth: validatedData.drawings[0].stroke_width,
+          layerId: validatedData.drawings[0].layer_id,
+          opacity: validatedData.drawings[0].opacity,
+          brushType: validatedData.drawings[0].brush_type,
+          smoothing: validatedData.drawings[0].smoothing,
+          firstPoint: validatedData.drawings[0].path_data[0]
+        } : null
+      });
+    }
+    
+    // Get plan by token
+    const plan = await getPlanByToken(validatedData.token);
+    if (!plan) {
+      return NextResponse.json(
+        { error: 'Plan not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Clear existing drawings and save new ones with enhanced properties
+    await deleteAllDrawings(plan.id);
+    
+    for (const drawing of validatedData.drawings) {
+      await createEnhancedDrawing(validatedData.token, {
+        path_data: drawing.path_data,
+        color: drawing.color,
+        stroke_width: drawing.stroke_width,
+        layer_id: drawing.layer_id || undefined,
+        opacity: drawing.opacity || undefined,
+        brush_type: drawing.brush_type || undefined,
+        smoothing: drawing.smoothing || undefined
+      });
+    }
+    
+    return NextResponse.json({ success: true });
+    
+  } catch (error) {
+    console.error('Enhanced drawing save error:', error);
+    return NextResponse.json(
+      { error: 'Failed to save drawings' },
+      { status: 500 }
+    );
+  }
+}
+
+// GET method for loading drawings
+export async function GET(request: NextRequest) {
+  try {
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[API] GET /api/plans called with URL:', request.url);
+    }
+    
+    // Rate limiting
+    const rateLimitResult = rateLimit(request, 100); // Increased from 50 to 100 reads per minute for debugging
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: rateLimitResult.error },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter?.toString() || '60',
+            'X-RateLimit-Remaining': rateLimitResult.remaining.toString()
+          }
+        }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const token = searchParams.get('token');
+    const loadDrawings = searchParams.get('drawings') === 'true';
+    
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Token is required' },
+        { status: 400 }
+      );
+    }
+      // Import database functions here to avoid issues
+    const { getPlanByToken, getEnhancedDrawings } = await import('../../../lib/database');
+    
+    // Get plan by token
+    const plan = await getPlanByToken(token);
+    if (!plan) {
+      return NextResponse.json(
+        { error: 'Plan not found' },
+        { status: 404 }
+      );
+    }
+      if (loadDrawings) {
+      // Return enhanced drawings for this plan
+      const drawings = await getEnhancedDrawings(plan.id);
+      return NextResponse.json(drawings || []);
+    } else {
+      // Return plan details
+      return NextResponse.json(plan);
+    }
+    
+  } catch (error) {
+    console.error('GET plans error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch data' },
+      { status: 500 }
+    );
+  }
 }

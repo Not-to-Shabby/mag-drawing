@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSP Test</title>
+</head>
+<body>
+    <h1>CSP Test Page</h1>
+    <p>Open browser console and navigate to <a href="http://localhost:3001" target="_blank">http://localhost:3001</a></p>
+    <p>Check for any CSP violation errors in the console.</p>
+    
+    <div id="test-results">
+        <h2>Expected Results:</h2>
+        <ul>
+            <li>No CSP violation errors in console</li>
+            <li>Application loads and redirects to plan page</li>
+            <li>Whiteboard functionality works</li>
+        </ul>
+    </div>
+    
+    <script>
+        // This script will help test inline script execution
+        console.log('✓ Inline script executed successfully - CSP allows inline scripts');
+        
+        // Test that we can access the Next.js app
+        fetch('http://localhost:3001/')
+            .then(response => {
+                console.log('✓ Next.js app is accessible');
+                console.log('CSP Header:', response.headers.get('Content-Security-Policy'));
+            })
+            .catch(error => {
+                console.error('✗ Error accessing Next.js app:', error);
+            });
+    </script>
+</body>
+</html>

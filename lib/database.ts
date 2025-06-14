@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { generateUUID } from './uuid';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -62,6 +63,48 @@ export interface Drawing {
   color: string;
   stroke_width: number;
   created_at: string;
+}
+
+// Phase 1: Enhanced interfaces for shapes and layers
+export interface Shape {
+  id: string;
+  plan_id: string;
+  layer_id?: string;
+  shape_type: 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'line' | 'text' | 'sticky';
+  x_position: number;
+  y_position: number;
+  width?: number;
+  height?: number;
+  rotation: number;
+  stroke_color: string;
+  fill_color?: string;
+  stroke_width: number;
+  opacity: number;
+  text_content?: string;
+  font_size?: number;
+  font_family?: string;
+  z_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Layer {
+  id: string;
+  plan_id: string;
+  name: string;
+  z_index: number;
+  opacity: number;
+  visible: boolean;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EnhancedDrawing extends Drawing {
+  layer_id?: string;
+  opacity: number;
+  brush_type: 'pen' | 'marker' | 'highlighter' | 'eraser';
+  smoothing: number;
 }
 
 // Generate a cryptographically secure random token for URL sharing
@@ -566,7 +609,7 @@ export const getDrawings = async (plan_id: string) => {
       throw new Error(`Failed to fetch drawings: ${error.message || 'Unknown error'}`);
     }
 
-    return data as Drawing[];
+    return data as EnhancedDrawing[]; // Return as EnhancedDrawing array
   } catch (error) {
     if (error instanceof Error) {
       if (process.env.NODE_ENV === 'development') {
@@ -582,6 +625,444 @@ export const getDrawings = async (plan_id: string) => {
     }
   }
 };
+
+// Add a specific function for getting enhanced drawings
+export const getEnhancedDrawings = async (plan_id: string): Promise<EnhancedDrawing[]> => {
+  try {
+    // Validate plan_id
+    if (!plan_id || typeof plan_id !== 'string') {
+      throw new Error('Invalid plan ID');
+    }
+
+    const sanitizedPlanId = sanitizeInput(plan_id);
+
+    const { data, error } = await supabase
+      .from('drawings')
+      .select('*')
+      .eq('plan_id', sanitizedPlanId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Supabase error in getEnhancedDrawings:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw new Error(`Failed to fetch enhanced drawings: ${error.message || 'Unknown error'}`);
+    }
+
+    // Ensure all drawings have default values for enhanced properties
+    const enhancedData = (data || []).map(drawing => ({
+      ...drawing,
+      layer_id: drawing.layer_id || null,
+      opacity: drawing.opacity || 1,
+      brush_type: drawing.brush_type || 'pen',
+      smoothing: drawing.smoothing || 0.5
+    })) as EnhancedDrawing[];
+
+    return enhancedData;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Database error in getEnhancedDrawings:', error.message);
+      }
+      throw error;
+    } else {
+      const errorMessage = 'Unknown error fetching enhanced drawings';
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Unknown error in getEnhancedDrawings:', error);
+      }
+      throw new Error(errorMessage);
+    }
+  }
+};
+
+// Helper function to get plan UUID from token
+async function getPlanUuidFromToken(token: string): Promise<string | null> {
+  const plan = await getPlanByToken(token);
+  return plan?.id || null;
+}
+
+// Phase 1: Shape management functions
+export async function createShape(planToken: string, shapeData: Omit<Shape, 'id' | 'plan_id' | 'created_at' | 'updated_at'>): Promise<Shape | null> {
+  try {
+    // Get the actual plan UUID from the token
+    const planUuid = await getPlanUuidFromToken(planToken);
+    if (!planUuid) {
+      console.error('Error creating shape: Plan not found for token:', planToken);
+      return null;
+    }
+
+    // Import validation from input-validator
+    const { InputValidator } = await import('./input-validator');
+    
+    // Validate shape data
+    const validatedData = InputValidator.shapeSchema.parse({
+      id: generateUUID(),
+      ...shapeData
+    });
+
+    const { data, error } = await supabase
+      .from('shapes')
+      .insert([{
+        plan_id: planUuid, // Use the actual plan UUID
+        layer_id: shapeData.layer_id,
+        shape_type: validatedData.type,
+        x_position: validatedData.x,
+        y_position: validatedData.y,
+        width: validatedData.width,
+        height: validatedData.height,
+        rotation: validatedData.rotation,
+        stroke_color: validatedData.strokeColor,
+        fill_color: validatedData.fillColor,
+        stroke_width: validatedData.strokeWidth,
+        opacity: validatedData.opacity,
+        text_content: validatedData.text,
+        font_size: validatedData.fontSize,
+        font_family: validatedData.fontFamily,
+        z_index: validatedData.zIndex
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating shape:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error creating shape:', error);
+    return null;
+  }
+}
+
+export async function getShapes(planToken: string): Promise<Shape[]> {
+  try {
+    // Get the actual plan UUID from the token
+    const planUuid = await getPlanUuidFromToken(planToken);
+    if (!planUuid) {
+      console.error('Error fetching shapes: Plan not found for token:', planToken);
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('shapes')
+      .select('*')
+      .eq('plan_id', planUuid) // Use the actual plan UUID
+      .order('z_index', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching shapes:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching shapes:', error);
+    return [];
+  }
+}
+
+export async function updateShape(shapeId: string, updates: Partial<Shape>): Promise<boolean> {
+  try {
+    // Validate updates
+    const allowedUpdates = ['x_position', 'y_position', 'width', 'height', 'rotation', 
+                           'stroke_color', 'fill_color', 'stroke_width', 'opacity', 
+                           'text_content', 'font_size', 'z_index'];    const filteredUpdates: Partial<Record<string, unknown>> = Object.keys(updates)
+      .filter(key => allowedUpdates.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = updates[key as keyof Shape];
+        return obj;
+      }, {} as Record<string, unknown>);
+
+    filteredUpdates.updated_at = new Date().toISOString();
+
+    const { error } = await supabase
+      .from('shapes')
+      .update(filteredUpdates)
+      .eq('id', shapeId);
+
+    if (error) {
+      console.error('Error updating shape:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error updating shape:', error);
+    return false;
+  }
+}
+
+export async function deleteShape(shapeId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('shapes')
+      .delete()
+      .eq('id', shapeId);
+
+    if (error) {
+      console.error('Error deleting shape:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting shape:', error);
+    return false;
+  }
+}
+
+// Phase 1: Layer management functions
+export async function createLayer(planUuid: string, layerData: Omit<Layer, 'id' | 'plan_id' | 'created_at' | 'updated_at'>): Promise<Layer | null> {
+  try {
+    // Plan UUID is now directly provided
+    if (!planUuid) {
+      console.error('Error creating layer: Plan UUID is missing.');
+      return null;
+    }
+
+    const { InputValidator } = await import('./input-validator');
+    
+    // Validate layer data
+    const validatedData = InputValidator.layerSchema.parse({
+      id: generateUUID(),
+      ...layerData
+    });
+
+    const { data, error } = await supabase
+      .from('plan_layers')
+      .insert([{
+        plan_id: planUuid, // Use the provided plan UUID
+        name: validatedData.name,
+        z_index: validatedData.zIndex,
+        opacity: validatedData.opacity,
+        visible: validatedData.visible,
+        locked: validatedData.locked
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error(
+        'Error creating layer (Supabase):',
+        'Message:', error.message,
+        'Details:', error.details,
+        'Code:', error.code,
+        'Full Error:', error
+      );
+      return null;
+    }
+
+    return data;
+  } catch (error: unknown) { // Changed from any to unknown
+    console.error(
+      'Error creating layer (Catch):',
+      'Message:', (error instanceof Error ? error.message : 'Unknown error'), // Safely access message
+      'Full Error:', error
+    );
+    return null;
+  }
+}
+
+export async function getLayers(planUuid: string): Promise<Layer[]> {
+  try {
+    // Plan UUID is now directly provided
+    if (!planUuid) {
+      console.error('Error fetching layers: Plan UUID is missing.');
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('plan_layers')
+      .select('*')
+      .eq('plan_id', planUuid) // Use the provided plan UUID directly
+      .order('z_index', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching layers:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching layers:', error);
+    return [];
+  }
+}
+
+export async function updateLayer(layerId: string, updates: Partial<Layer>): Promise<boolean> {
+  try {
+    const allowedUpdates = ['name', 'z_index', 'opacity', 'visible', 'locked'];
+      const filteredUpdates: Partial<Record<string, unknown>> = Object.keys(updates)
+      .filter(key => allowedUpdates.includes(key))
+      .reduce((obj, key) => {
+        obj[key] = updates[key as keyof Layer];
+        return obj;
+      }, {} as Record<string, unknown>);
+
+    filteredUpdates.updated_at = new Date().toISOString();
+
+    const { error } = await supabase
+      .from('plan_layers')
+      .update(filteredUpdates)
+      .eq('id', layerId);
+
+    if (error) {
+      console.error('Error updating layer:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error updating layer:', error);
+    return false;
+  }
+}
+
+export async function deleteLayer(layerId: string): Promise<boolean> {
+  try {
+    // First, move all shapes and drawings from this layer to default layer
+    const { data: planData } = await supabase
+      .from('plan_layers')
+      .select('plan_id')
+      .eq('id', layerId)
+      .single();
+
+    if (planData) {
+      // Get default layer (z_index = 0)
+      const { data: defaultLayer } = await supabase
+        .from('plan_layers')
+        .select('id')
+        .eq('plan_id', planData.plan_id)
+        .eq('z_index', 0)
+        .single();
+
+      if (defaultLayer) {
+        // Move shapes to default layer
+        await supabase
+          .from('shapes')
+          .update({ layer_id: defaultLayer.id })
+          .eq('layer_id', layerId);
+
+        // Move drawings to default layer
+        await supabase
+          .from('drawings')
+          .update({ layer_id: defaultLayer.id })
+          .eq('layer_id', layerId);
+      }
+    }
+
+    // Delete the layer
+    const { error } = await supabase
+      .from('plan_layers')
+      .delete()
+      .eq('id', layerId);
+
+    if (error) {
+      console.error('Error deleting layer:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting layer:', error);
+    return false;
+  }
+}
+
+export async function initializeDefaultLayers(planUuid: string): Promise<void> {
+  try {
+    // Plan UUID is now directly provided
+    if (!planUuid) {
+      console.error('Error initializing layers: Plan UUID is missing.');
+      return;
+    }
+
+    // Check if layers already exist
+    const { data: existingLayers } = await supabase
+      .from('plan_layers')
+      .select('id')
+      .eq('plan_id', planUuid); // Use the provided plan UUID
+
+    if (existingLayers && existingLayers.length > 0) {
+      return; // Layers already exist
+    }
+
+    // Create default layers
+    const defaultLayers = [
+      { name: 'Background', z_index: 0, opacity: 1, visible: true, locked: false },
+      { name: 'Routes', z_index: 1, opacity: 1, visible: true, locked: false },
+      { name: 'Destinations', z_index: 2, opacity: 1, visible: true, locked: false }
+    ];
+
+    for (const layer of defaultLayers) {
+      // Pass the planUuid directly to createLayer
+      await createLayer(planUuid, layer); 
+    }
+  } catch (error) {
+    console.error('Error initializing default layers:', error);
+  }
+}
+
+// Enhanced drawing functions with layer support
+export async function createEnhancedDrawing(
+  planToken: string, 
+  drawingData: {
+    path_data: Array<{ x: number; y: number }>;
+    color: string;
+    stroke_width: number;
+    layer_id?: string;
+    opacity?: number;
+    brush_type?: string;
+    smoothing?: number;
+  }
+): Promise<EnhancedDrawing | null> {
+  try {
+    // Get the actual plan UUID from the token
+    const planUuid = await getPlanUuidFromToken(planToken);
+    if (!planUuid) {
+      console.error('Error creating enhanced drawing: Plan not found for token:', planToken);
+      return null;
+    }    const { InputValidator } = await import('./input-validator');
+    
+    // Validate drawing data - adapt the format for the validator
+    const validatedData = InputValidator.enhancedDrawingSchema.parse({
+      id: generateUUID(),
+      pathData: drawingData.path_data.map(point => ({ x: point.x, y: point.y })), // Convert format
+      color: drawingData.color,
+      strokeWidth: drawingData.stroke_width,
+      layerId: drawingData.layer_id,
+      opacity: drawingData.opacity || 1,
+      brushType: drawingData.brush_type || 'pen',
+      smoothing: drawingData.smoothing || 0.5
+    });const { data, error } = await supabase
+      .from('drawings')
+      .insert([{
+        plan_id: planUuid, // Use the actual plan UUID
+        layer_id: validatedData.layerId,
+        path_data: validatedData.pathData,
+        color: validatedData.color,
+        stroke_width: validatedData.strokeWidth,
+        opacity: validatedData.opacity,
+        brush_type: validatedData.brushType,
+        smoothing: validatedData.smoothing
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating enhanced drawing:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error creating enhanced drawing:', error);
+    return null;
+  }
+}
 
 export const deleteDrawing = async (id: string) => {
   try {
@@ -620,7 +1101,7 @@ export const deleteAllDrawings = async (plan_id: string) => {
 
     if (error) throw error;
   } catch (error) {
-    console.error('Database error:', error);
+    console.error('Database error deleting all drawings:', error);
     throw error;
   }
 };
