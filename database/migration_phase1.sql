@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS shapes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   plan_id UUID REFERENCES plans(id) ON DELETE CASCADE,
   layer_id UUID,
-  shape_type VARCHAR(20) NOT NULL CHECK (shape_type IN ('rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'line', 'text', 'sticky')),
+  shape_type VARCHAR(20) NOT NULL CHECK (shape_type IN ('rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'line', 'text', 'sticky-note')),
   x_position FLOAT NOT NULL CHECK (x_position >= -1000 AND x_position <= 20000),
   y_position FLOAT NOT NULL CHECK (y_position >= -1000 AND y_position <= 20000),
   width FLOAT CHECK (width >= 1 AND width <= 5000),

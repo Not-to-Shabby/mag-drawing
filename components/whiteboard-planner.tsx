@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
-import { PlusCircle, MapPin, Calendar, Trash2, Palette, Share2, Copy, Save } from 'lucide-react';
+import { PlusCircle, MapPin, Calendar, Trash2, Palette, Share2, Copy, Save, Moon, Sun } from 'lucide-react';
 import { 
   getPlanByToken, 
   updatePlan, 
@@ -13,8 +13,10 @@ import {
   createDestination, 
   deleteDestination,
   createPlan,
-  generatePlanName
+  generatePlanName,
+  Shape
 } from '../lib/database';
+import { getCachedPlan } from '../lib/plan-cache';
 import { useDrawingTools, ShapeDrawer } from '../lib/drawing-tools';
 import { useLayerManagement } from '../lib/layer-management';
 import { EnhancedToolbar } from './enhanced-toolbar';
@@ -41,7 +43,7 @@ interface DrawingPath {
 
 interface EnhancedShape {
   id: string;
-  type: string;
+  type: 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'line' | 'text' | 'sticky-note';
   x: number;
   y: number;
   width?: number;
@@ -80,117 +82,18 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   // const [planId, setPlanId] = useState<string | null>(null); // Removed
   const [planUuid, setPlanUuid] = useState<string | null>(null); // Added
   // Drawing tools and layer management
-  const { toolConfig, updateToolConfig } = useDrawingTools();
-  const {
+  const { toolConfig, updateToolConfig } = useDrawingTools();  const {
     layers,
     activeLayerId,
     addLayer,
     deleteLayer, // Renamed from removeLayer
-    // toggleLayerVisibility, // Removed
-    // toggleLayerLock, // Removed
     updateLayer, // Contains functionality for opacity, visibility, lock, name, z_index
-    // moveLayer, // This functionality can be part of updateLayer (z_index)
-    setActiveLayerId
-    // updateLayer // Added - This was a duplicate, removed
+    setActiveLayer
   } = useLayerManagement(token, planUuid);
   
   // Existing state
   const [destinations, setDestinations] = useState<Destination[]>([]);
-  const [drawings, setDrawings] = useState<DrawingPath[]>([]);
-  const [shapes, setShapes] = useState<EnhancedShape[]>([
-    // Sample shapes for testing selection
-    {
-      id: 'test-rect-1',
-      type: 'rectangle',
-      x: 100,
-      y: 100,
-      width: 150,
-      height: 100,
-      rotation: 0,
-      strokeColor: '#3b82f6',
-      fillColor: '#dbeafe',
-      strokeWidth: 2,
-      opacity: 1,
-      zIndex: 1,
-      layer_id: undefined
-    },
-    {
-      id: 'test-circle-1',
-      type: 'circle',
-      x: 300,
-      y: 150,
-      width: 80,
-      height: 80,
-      rotation: 0,
-      strokeColor: '#ef4444',
-      fillColor: '#fecaca',
-      strokeWidth: 2,
-      opacity: 1,
-      zIndex: 2,
-      layer_id: undefined
-    },    {
-      id: 'test-text-1',
-      type: 'text',
-      x: 150,
-      y: 250,
-      width: 200,
-      height: 30,
-      rotation: 0,
-      strokeColor: '#10b981',
-      strokeWidth: 1,
-      opacity: 1,
-      text: 'Click to select me!',
-      fontSize: 16,
-      fontFamily: 'Inter',
-      zIndex: 3,
-      layer_id: undefined
-    },
-    {
-      id: 'test-triangle-1',
-      type: 'triangle',
-      x: 450,
-      y: 100,
-      width: 100,
-      height: 100,
-      rotation: 0,
-      strokeColor: '#f59e0b',
-      fillColor: '#fef3c7',
-      strokeWidth: 2,
-      opacity: 1,
-      zIndex: 4,
-      layer_id: undefined
-    },    {
-      id: 'test-arrow-1',
-      type: 'arrow',
-      x: 100,
-      y: 320,
-      width: 150,
-      height: 60,
-      rotation: 0,
-      strokeColor: '#8b5cf6',
-      strokeWidth: 3,
-      opacity: 1,      zIndex: 5,
-      layer_id: undefined
-    },
-    {
-      id: 'test-sticky-1',
-      type: 'sticky-note',
-      x: 350,
-      y: 280,
-      width: 150,
-      height: 120,
-      rotation: 0,
-      strokeColor: '#d97706',
-      fillColor: '#fef08a',
-      strokeWidth: 2,
-      opacity: 1,
-      text: 'Remember to test all features!',
-      fontSize: 14,
-      fontFamily: 'Inter',
-      zIndex: 6,
-      layer_id: undefined
-    }
-  ]);
+  const [drawings, setDrawings] = useState<DrawingPath[]>([]);  const [shapes, setShapes] = useState<EnhancedShape[]>([]);
   
   const [selectedShapes, setSelectedShapes] = useState<EnhancedShape[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);  const [isDragging, setIsDragging] = useState(false);
@@ -201,11 +104,9 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const [originalShapeSize, setOriginalShapeSize] = useState<{ x: number; y: number; width: number; height: number } | null>(null);  const [isRotating, setIsRotating] = useState(false);
   const [rotationStartPos, setRotationStartPos] = useState<{ x: number; y: number } | null>(null);
   const [currentPath, setCurrentPath] = useState<DrawingPath | null>(null);
-  const [editingShape, setEditingShape] = useState<EnhancedShape | null>(null);
-  const [editingText, setEditingText] = useState<string>('');
+  const [editingShape, setEditingShape] = useState<EnhancedShape | null>(null);  const [editingText, setEditingText] = useState<string>('');
   const [selectedTool, setSelectedTool] = useState<'draw' | 'destination'>('draw');
   const [selectedDestination, setSelectedDestination] = useState<Destination | null>(null);
-  const [drawColor, setDrawColor] = useState('#3b82f6');
   const [showAddDestination, setShowAddDestination] = useState(false);
   const [newDestinationPos, setNewDestinationPos] = useState({ x: 0, y: 0 });
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -214,7 +115,10 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [planTitle, setPlanTitle] = useState('Untitled Travel Plan');  const [shapeDrawer, setShapeDrawer] = useState<ShapeDrawer | null>(null);  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false); // Autosave disabled by default
   const [autoSaving, setAutoSaving] = useState(false); // Track autosave status
+  const [isClearingCanvas, setIsClearingCanvas] = useState(false); // Prevent auto-save during clear
   const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
+  const [showSidebar, setShowSidebar] = useState(false); // Mobile sidebar toggle
+  const [showToolbar, setShowToolbar] = useState(false); // Mobile toolbar toggle
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/plan/${token}` : '';
 
   // Resize handle utilities
@@ -417,6 +321,74 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       }
     }
     return null;
+  };
+  // New function to detect pen drawings at a point
+  const getDrawingAtPoint = (x: number, y: number, tolerance: number = 15): DrawingPath | null => {
+    // Check drawings in reverse order (most recent first)
+    for (let i = drawings.length - 1; i >= 0; i--) {
+      const drawing = drawings[i];
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Checking drawing ${i} with ${drawing.points.length} points`);
+      }
+      
+      // Check if point is near any segment of the drawing path
+      for (let j = 0; j < drawing.points.length - 1; j++) {
+        const p1 = drawing.points[j];
+        const p2 = drawing.points[j + 1];
+        
+        // Calculate distance from point to line segment
+        const distance = pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+        const strokeRadius = (drawing.width || 2) / 2;
+        
+        if (distance <= tolerance + strokeRadius) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Found drawing at distance ${distance}, tolerance ${tolerance + strokeRadius}`);
+          }
+          return drawing;
+        }
+      }
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`No drawing found at point (${x}, ${y})`);
+    }
+    return null;
+  };
+
+  // Helper function to calculate distance from point to line segment
+  const pointToLineDistance = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    
+    if (lenSq === 0) {
+      // Line segment is a point
+      return Math.sqrt(A * A + B * B);
+    }
+    
+    const param = dot / lenSq;
+    
+    let xx, yy;
+    
+    if (param < 0) {
+      xx = x1;
+      yy = y1;
+    } else if (param > 1) {
+      xx = x2;
+      yy = y2;
+    } else {
+      xx = x1 + param * C;
+      yy = y1 + param * D;
+    }
+
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
   };
 
   const selectShape = (shape: EnhancedShape | null) => {
@@ -838,15 +810,23 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         }
       }
       return;
-    }
-
-    // Handle eraser tool
+    }    // Handle eraser tool
     if (toolConfig.tool === 'eraser') {
       const clickedShape = getShapeAtPoint(x, y);
       if (clickedShape) {
         // Remove the clicked shape
         setShapes(prevShapes => prevShapes.filter(shape => shape.id !== clickedShape.id));
         console.log(`Erased shape: ${clickedShape.type}`);
+        redrawCanvas(); // Ensure immediate visual update
+      } else {
+        // Check for drawings under the cursor
+        const clickedDrawing = getDrawingAtPoint(x, y);
+        if (clickedDrawing) {
+          // Remove the clicked drawing
+          setDrawings(prevDrawings => prevDrawings.filter(drawing => drawing.id !== clickedDrawing.id));
+          console.log('Erased pen drawing');
+          redrawCanvas(); // Ensure immediate visual update
+        }
       }
       return;
     }
@@ -1123,7 +1103,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       if (planExists && autoSaveEnabled) {
         try {
           setAutoSaving(true);
-          await saveDrawings();
+          await saveContent();
         } catch (error) {
           console.error('Auto-save failed:', error);
         } finally {
@@ -1207,11 +1187,10 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       
       setDestinations([...destinations, newDestination]);
       setShowAddDestination(false);
-      
-      // Try to save to database if available
+        // Try to save to database if available
       if (planExists) {
         try {
-          const plan = await getPlanByToken(token);
+          const plan = await getCachedPlan(token, getPlanByToken);
           if (plan) {
             const savedDest = await createDestination(
               plan.id,
@@ -1254,28 +1233,34 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       }
       setLastSaved(new Date());
     } catch (error) {
-      console.error('Error removing destination:', error);
-    }
-  };
-  const clearCanvas = async () => {
+      console.error('Error removing destination:', error);    }  };
+  const clearCanvas = async (forceManualSave: boolean = false) => {
     try {
+      setIsClearingCanvas(true); // Set flag to prevent auto-save
       setDrawings([]);
+      setShapes([]); 
+      setSelectedShapes([]);
       redrawCanvas();
       
-      if (planExists) {
-        await saveDrawings();
+      // Save if auto-save is enabled OR if this is a manual clear action
+      if (planExists && (autoSaveEnabled || forceManualSave)) {
+        await saveContent();
       }
     } catch (error) {
       console.error('Error clearing canvas:', error);
+    } finally {
+      setIsClearingCanvas(false); // Reset flag after operation
     }
-  };  const saveDrawings = async () => {
+  };
+
+  const saveContent = useCallback(async () => {
     try {
       if (!planExists) {
         if (process.env.NODE_ENV === 'development') {
-          console.log('Working in offline mode - drawings not saved to database');
+          console.log('Working in offline mode - content not saved to database');
         }
-        return;
-      }      // Use API route instead of direct database calls
+        return;      }
+
       // Filter out invalid drawings (must have at least 1 point and valid color/width)
       const validDrawings = drawings.filter(drawing => 
         drawing.points && 
@@ -1290,15 +1275,20 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         )
       );
 
-      if (validDrawings.length === 0) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('No valid drawings to save');
-        }
-        return;
-      }
+      // Filter out invalid shapes
+      const validShapes = shapes.filter(shape => 
+        shape.id && 
+        shape.type && 
+        typeof shape.x === 'number' && 
+        typeof shape.y === 'number' && 
+        shape.strokeColor &&
+        shape.strokeWidth > 0 &&
+        !isNaN(shape.x) && 
+        !isNaN(shape.y)
+      );
 
-      const drawingsData = validDrawings.map(drawing => ({
-        path_data: drawing.points,
+      // Prepare drawings data
+      const drawingsData = validDrawings.map(drawing => ({        path_data: drawing.points,
         color: drawing.color,
         stroke_width: drawing.width,
         layer_id: drawing.layer_id,
@@ -1307,25 +1297,46 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         smoothing: drawing.smoothing
       }));
 
+      // Prepare shapes data - only include defined values to avoid null serialization issues
+      const shapesData = validShapes.map(shape => {
+        // Start with required fields
+        const shapeData = {
+          id: shape.id,
+          type: shape.type,
+          x: shape.x,
+          y: shape.y,
+          rotation: shape.rotation,
+          strokeColor: shape.strokeColor,
+          strokeWidth: shape.strokeWidth,
+          opacity: shape.opacity,
+          zIndex: shape.zIndex,
+          // Optional fields - only include if they have values
+          ...(shape.width !== undefined && shape.width !== null && { width: shape.width }),
+          ...(shape.height !== undefined && shape.height !== null && { height: shape.height }),
+          ...(shape.fillColor !== undefined && shape.fillColor !== null && { fillColor: shape.fillColor }),
+          ...(shape.text !== undefined && shape.text !== null && { text: shape.text }),
+          ...(shape.fontSize !== undefined && shape.fontSize !== null && { fontSize: shape.fontSize }),
+          ...(shape.fontFamily !== undefined && shape.fontFamily !== null && { fontFamily: shape.fontFamily }),
+          ...(shape.layer_id !== undefined && shape.layer_id !== null && { layer_id: shape.layer_id })
+        };
+        
+        return shapeData;
+      });
+
       if (process.env.NODE_ENV === 'development') {
-        console.log('Saving drawings:', {
+        console.log('Saving content:', {
           token,
           totalDrawings: drawings.length,
           validDrawings: validDrawings.length,
+          totalShapes: shapes.length,
+          validShapes: validShapes.length,
+          autoSaveEnabled,
           drawingCount: drawingsData.length,
-          firstDrawing: drawingsData[0] ? {
-            pointCount: drawingsData[0].path_data.length,
-            color: drawingsData[0].color,
-            strokeWidth: drawingsData[0].stroke_width,
-            layerId: drawingsData[0].layer_id,
-            opacity: drawingsData[0].opacity,
-            brushType: drawingsData[0].brush_type,
-            smoothing: drawingsData[0].smoothing,
-            firstPoint: drawingsData[0].path_data[0]
-          } : null
+          shapeCount: shapesData.length
         });
       }
 
+      // Save both drawings and shapes in a single API call
       const response = await fetch('/api/plans', {
         method: 'PUT',
         headers: {
@@ -1333,29 +1344,31 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         },
         body: JSON.stringify({
           token,
-          drawings: drawingsData
+          drawings: drawingsData,
+          shapes: shapesData
         }),
-      });      if (!response.ok) {
+      });
+
+      if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        throw new Error(`Failed to save drawings: ${response.status} ${response.statusText}${errorData ? ` - ${errorData.error}` : ''}`);
+        throw new Error(`Failed to save content: ${response.status} ${response.statusText}${errorData ? ` - ${errorData.error}` : ''}`);
       }
       
       setLastSaved(new Date());
       if (process.env.NODE_ENV === 'development') {
-        console.log('Drawings saved successfully');
+        console.log('Content saved successfully - drawings and shapes');
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('Could not save drawings to database - working in offline mode:', error);
+        console.log('Could not save content to database - working in offline mode:', error);
       }
     }
-  };
+  }, [planExists, token, drawings, shapes, autoSaveEnabled]);
 
   const updatePlanTitle = async (newTitle: string) => {
     try {
       if (!planExists) return;
-      
-      const plan = await getPlanByToken(token);
+        const plan = await getCachedPlan(token, getPlanByToken);
       if (!plan) return;
       
       await updatePlan(plan.id, { title: newTitle });
@@ -1363,17 +1376,228 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       setLastSaved(new Date());
     } catch (error) {
       console.error('Error updating plan title:', error);
+    }  };
+  // Ultra-optimized: Load all plan data (drawings + shapes) in a single API call
+  const loadPlanDataOptimized = useCallback(async () => {
+    try {
+      if (!planExists) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Working in offline mode - plan data not loaded from database');
+        }
+        return;
+      }
+
+      // Single API call to load both drawings and shapes
+      const response = await fetch(`/api/plans?token=${token}&all=true`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] loadPlanDataOptimized: Raw combined data from API:', data);
+        }
+
+        // Process drawings
+        if (data.drawings && Array.isArray(data.drawings)) {
+          const mappedDrawings = data.drawings.map((d: ApiDrawingData) => ({
+            id: d.id,
+            points: d.path_data,
+            color: d.color,
+            width: d.stroke_width,
+            layer_id: d.layer_id,
+            opacity: d.opacity,
+            brush_type: d.brush_type,
+            smoothing: d.smoothing
+          }));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] loadPlanDataOptimized: Mapped drawings for state:', mappedDrawings);
+          }
+          setDrawings(mappedDrawings);
+        }
+
+        // Process shapes
+        if (data.shapes && Array.isArray(data.shapes)) {
+          const mappedShapes: EnhancedShape[] = data.shapes.map((s: Shape) => ({
+            id: s.id,
+            type: s.shape_type,
+            x: s.x_position,
+            y: s.y_position,
+            width: s.width,
+            height: s.height,
+            rotation: s.rotation,
+            strokeColor: s.stroke_color,
+            fillColor: s.fill_color,
+            strokeWidth: s.stroke_width,
+            opacity: s.opacity,
+            text: s.text_content,
+            fontSize: s.font_size,
+            fontFamily: s.font_family,
+            zIndex: s.z_index,
+            layer_id: s.layer_id
+          }));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] loadPlanDataOptimized: Mapped shapes for state:', mappedShapes);
+          }
+          setShapes(mappedShapes);
+        }
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] loadPlanDataOptimized: Completed single-call loading of drawings and shapes');
+        }
+      } else {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Could not load plan data via optimized API, status:', response.status);
+        }
+      }
+
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading plan data via optimized API:', error);
+      }
     }
-  };
+  }, [planExists, token]);
+  // Fallback: Load all plan data (drawings + shapes) in parallel - kept for fallback scenarios
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const loadPlanData = useCallback(async () => {
+    try {
+      if (!planExists) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Working in offline mode - plan data not loaded from database');
+        }
+        return;
+      }
+
+      // Parallel API calls to load both drawings and shapes simultaneously
+      const [drawingsResponse, shapesResponse] = await Promise.all([
+        fetch(`/api/plans?token=${token}&drawings=true`),
+        fetch(`/api/plans?token=${token}&shapes=true`)
+      ]);
+
+      // Process drawings if successful
+      if (drawingsResponse.ok) {
+        const drawingsData = await drawingsResponse.json();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] loadPlanData: Raw drawings data from API:', drawingsData);
+        }
+        if (drawingsData && Array.isArray(drawingsData)) {
+          const mappedDrawings = drawingsData.map((d: ApiDrawingData) => ({
+            id: d.id,
+            points: d.path_data,
+            color: d.color,
+            width: d.stroke_width,
+            layer_id: d.layer_id,
+            opacity: d.opacity,
+            brush_type: d.brush_type,
+            smoothing: d.smoothing
+          }));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] loadPlanData: Mapped drawings for state:', mappedDrawings);
+          }
+          setDrawings(mappedDrawings);
+        }
+      }
+
+      // Process shapes if successful
+      if (shapesResponse.ok) {
+        const shapesData = await shapesResponse.json();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] loadPlanData: Raw shapes data from API:', shapesData);
+        }
+        if (shapesData && Array.isArray(shapesData)) {
+          const mappedShapes: EnhancedShape[] = shapesData.map((s: Shape) => ({
+            id: s.id,
+            type: s.shape_type,
+            x: s.x_position,
+            y: s.y_position,
+            width: s.width,
+            height: s.height,
+            rotation: s.rotation,
+            strokeColor: s.stroke_color,
+            fillColor: s.fill_color,
+            strokeWidth: s.stroke_width,
+            opacity: s.opacity,
+            text: s.text_content,
+            fontSize: s.font_size,
+            fontFamily: s.font_family,
+            zIndex: s.z_index,
+            layer_id: s.layer_id
+          }));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] loadPlanData: Mapped shapes for state:', mappedShapes);
+          }
+          setShapes(mappedShapes);
+        }
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] loadPlanData: Completed parallel loading of drawings and shapes');
+      }
+
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading plan data via API:', error);
+      }
+    }
+  }, [planExists, token]);
+  // Legacy loadShapes function - kept for specific use cases where only shapes need to be reloaded
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const loadShapes = useCallback(async () => {
+    try {
+      if (!planExists) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Working in offline mode - shapes not loaded from database');
+        }
+        return;
+      }
+
+      const response = await fetch(`/api/plans?token=${token}&shapes=true`);
+      if (response.ok) {
+        const shapesData = await response.json();
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] loadShapes: Raw shapes data from API:', shapesData);
+        }
+        if (shapesData && Array.isArray(shapesData)) {
+          const mappedShapes: EnhancedShape[] = shapesData.map((s: Shape) => ({
+            id: s.id,
+            type: s.shape_type,
+            x: s.x_position,
+            y: s.y_position,
+            width: s.width,
+            height: s.height,
+            rotation: s.rotation,
+            strokeColor: s.stroke_color,
+            fillColor: s.fill_color,
+            strokeWidth: s.stroke_width,
+            opacity: s.opacity,
+            text: s.text_content,
+            fontSize: s.font_size,
+            fontFamily: s.font_family,
+            zIndex: s.z_index,
+            layer_id: s.layer_id
+          }));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] loadShapes: Mapped shapes for state:', mappedShapes);
+          }
+          setShapes(mappedShapes);
+        }
+      } else {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Could not load shapes via API, might be empty or error:', response.status);
+        }
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error loading shapes via API:', error);
+      }    }
+  }, [planExists, token]);
+
   // Load plan data from database
   useEffect(() => {
     const loadPlan = async () => {
       try {
         setIsLoading(true);
-        
-        // Try to get existing plan
+          // Try to get existing plan
         try {
-          const plan = await getPlanByToken(token);
+          const plan = await getCachedPlan(token, getPlanByToken);
           if (plan) {
             setPlanTitle(plan.title || 'Untitled Travel Plan');
             setPlanExists(true);
@@ -1389,40 +1613,12 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 y: d.y_position,
                 notes: d.notes || '',
                 color: d.color
-              })));
-            }
-              // Load drawings via API
+              })));            }            // Ultra-optimized: Load drawings and shapes in a single API call
             try {
-              const drawingResponse = await fetch(`/api/plans?token=${token}&drawings=true`);
-              if (drawingResponse.ok) {
-                const drawingsData = await drawingResponse.json();
-                if (process.env.NODE_ENV === 'development') {
-                  console.log('[DEBUG] loadPlan: Raw drawings data from API:', drawingsData);
-                }
-                if (drawingsData && Array.isArray(drawingsData)) {
-                  const mappedDrawings = drawingsData.map((d: ApiDrawingData) => ({ // Use ApiDrawingData type
-                    id: d.id,
-                    points: d.path_data,
-                    color: d.color,
-                    width: d.stroke_width,
-                    layer_id: d.layer_id,
-                    opacity: d.opacity,
-                    brush_type: d.brush_type,
-                    smoothing: d.smoothing
-                  }));
-                  if (process.env.NODE_ENV === 'development') {
-                    console.log('[DEBUG] loadPlan: Mapped drawings for state:', mappedDrawings);
-                  }
-                  setDrawings(mappedDrawings);
-                }
-              } else {
-                if (process.env.NODE_ENV === 'development') {
-                  console.log('Could not load drawings via API, might be empty or error:', drawingResponse.status);
-                }
-              }
-            } catch (drawingError) {
+              await loadPlanDataOptimized();
+            } catch (dataError) {
               if (process.env.NODE_ENV === 'development') {
-                console.error('Error loading drawings via API:', drawingError);
+                console.error('Error loading plan data via ultra-optimized API:', dataError);
               }
             }
           } else {
@@ -1496,7 +1692,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     };
 
     loadPlan();
-  }, [token]); // Removed createPlan from dependencies as it's stable
+  }, [token, loadPlanDataOptimized]); // Updated to use ultra-optimized loadPlanDataOptimized
 
   // Load autosave preference from localStorage
   useEffect(() => {
@@ -1508,8 +1704,18 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
 
   // Save autosave preference to localStorage when it changes
   useEffect(() => {
-    localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));
-  }, [autoSaveEnabled]);  // Show loading state
+    localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));  }, [autoSaveEnabled]);
+  // Auto-save content when drawings or shapes change
+  useEffect(() => {
+    if (planExists && autoSaveEnabled && !isClearingCanvas && (drawings.length > 0 || shapes.length > 0)) {
+      const timeoutId = setTimeout(() => {
+        saveContent();
+      }, 1000); // Debounce for 1 second
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [drawings, shapes, planExists, autoSaveEnabled, isClearingCanvas, saveContent]);
+  // Show loading state
   if (isLoading) {
     return (
       <div className={`h-screen w-full flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
@@ -1523,74 +1729,79 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
 
   return (
     <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'dark' : ''}`}>
-      <div className="bg-background text-foreground h-full">
-        {/* Header */}
-        <div className="bg-card border-b border-border p-4 flex items-center justify-between">          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Mag-Drawing</h1>
+      <div className="bg-background text-foreground h-full">        {/* Header */}
+        <div className="bg-card border-b border-border p-2 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
+            <div className="flex-shrink-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground">Mag-Drawing</h1>
               <input
                 type="text"
                 value={planTitle}
                 onChange={(e) => setPlanTitle(e.target.value)}
                 onBlur={(e) => updatePlanTitle(e.target.value)}
-                className="text-lg font-medium text-foreground bg-transparent border-none outline-none focus:bg-background focus:border focus:border-border focus:rounded px-2 py-1"
+                className="text-sm sm:text-lg font-medium text-foreground bg-transparent border-none outline-none focus:bg-background focus:border focus:border-border focus:rounded px-2 py-1 w-full sm:w-auto"
                 placeholder="Enter plan title..."
               />
             </div>
-            <div className="text-sm text-muted-foreground">
-              Plan Token: <code className="bg-muted text-muted-foreground px-2 py-1 rounded">{token}</code>
+            <div className="text-xs sm:text-sm text-muted-foreground overflow-hidden">
+              <span className="hidden sm:inline">Plan Token: </span>
+              <code className="bg-muted text-muted-foreground px-1 sm:px-2 py-1 rounded text-xs break-all">{token}</code>
             </div>
-        </div>        <div className="flex items-center gap-4">
-          {lastSaved && (
-            <span className="text-xs text-muted-foreground">
-              Last saved: {lastSaved.toLocaleTimeString()}
-            </span>
-          )}
-          
-          {autoSaving && (
-            <span className="text-xs text-primary animate-pulse">
-              Auto-saving...
-            </span>
-          )}
+          </div>          <div className="flex flex-wrap items-center gap-2 sm:gap-4 justify-end sm:justify-start">
+            {lastSaved && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                <span className="hidden sm:inline">Last saved: </span>
+                <span className="sm:hidden">Saved: </span>
+                {lastSaved.toLocaleTimeString()}
+              </span>
+            )}
+            
+            {autoSaving && (
+              <span className="text-xs text-primary animate-pulse whitespace-nowrap">
+                Auto-saving...
+              </span>
+            )}            <Button
+              variant="outline"
+              size="sm"
+              onClick={saveContent}
+              disabled={isLoading || autoSaving}
+              className="h-8 px-2 sm:px-3"
+            >
+              <Save className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{autoSaving ? 'Saving...' : 'Save'}</span>
+            </Button>
+
+            <div className="flex items-center gap-1 sm:gap-2">
+              <input
+                type="checkbox"
+                id="autosave-toggle"
+                checked={autoSaveEnabled}
+                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                className="w-3 h-3 sm:w-4 sm:h-4 text-primary bg-background border-border rounded focus:ring-primary focus:ring-2"
+              />
+              <label 
+                htmlFor="autosave-toggle" 
+                className="text-xs text-muted-foreground cursor-pointer whitespace-nowrap"
+                title="Automatically save drawings after each stroke"
+              >
+                <span className="hidden sm:inline">Auto-save</span>
+                <span className="sm:hidden">Auto</span>
+              </label>
+            </div>
+              {/* Dark Mode Toggle */}
             <Button
-            variant="outline"
-            size="sm"
-            onClick={saveDrawings}
-            disabled={isLoading || autoSaving}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {autoSaving ? 'Saving...' : 'Save'}
-          </Button>          <div className="flex items-center gap-2">            <input
-              type="checkbox"
-              id="autosave-toggle"
-              checked={autoSaveEnabled}
-              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-              className="w-4 h-4 text-primary bg-background border-border rounded focus:ring-primary focus:ring-2"
-            /><label 
-              htmlFor="autosave-toggle" 
-              className="text-xs text-muted-foreground cursor-pointer"
-              title="Automatically save drawings after each stroke"
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsDarkMode(!setIsDarkMode)}
+              className="h-8 w-8 p-0 hover:scale-105 transition-all duration-200"
+              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
             >
-              Auto-save            </label>
-          </div>
-          
-          {/* Dark Mode Toggle */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="darkmode-toggle"
-              checked={isDarkMode}
-              onChange={(e) => setIsDarkMode(e.target.checked)}
-              className="w-4 h-4 text-primary bg-background border-border rounded focus:ring-primary focus:ring-2"
-            />
-            <label 
-              htmlFor="darkmode-toggle" 
-              className="text-xs text-muted-foreground cursor-pointer"
-              title="Toggle dark mode"
-            >
-              Dark Mode
-            </label>
-          </div>
+              {isDarkMode ? (
+                <Sun className="h-4 w-4 text-foreground" />
+              ) : (
+                <Moon className="h-4 w-4 text-foreground" />
+              )}
+            </Button>
           
           <Button
             variant="outline"
@@ -1639,8 +1850,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             <Share2 className="h-4 w-4 mr-2" />
             Share Plan
           </Button>
-          
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             <Button
               variant={selectedTool === 'draw' ? 'default' : 'outline'}
               size="sm"
@@ -1658,28 +1868,40 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               Add Place
             </Button>
           </div>
-          
-          {selectedTool === 'draw' && (
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={drawColor}
-                onChange={(e) => setDrawColor(e.target.value)}
-                className="w-8 h-8 rounded border-2 border-border"
-              />
-              <Button variant="outline" size="sm" onClick={clearCanvas}>
-                Clear
-              </Button>
-            </div>
-          )}
         </div>
-      </div>      <div className="flex-1 flex">
-        {/* Enhanced Toolbar */}        <EnhancedToolbar
+      </div>      <div className="flex-1 flex flex-col lg:flex-row relative">
+        {/* Mobile Toggle Button for Sidebar */}
+        <div className="lg:hidden p-2 border-b border-border bg-card">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSidebar(!showSidebar)}
+            className="w-full justify-start"
+          >
+            <Calendar className="h-4 w-4 mr-2" />
+            {showSidebar ? 'Hide' : 'Show'} Travel Plan
+          </Button>
+        </div>
+
+        {/* Enhanced Toolbar - Collapsible on mobile */}
+        <div className={`${showToolbar ? 'block' : 'hidden'} lg:block w-full lg:w-80 bg-background border-b lg:border-b-0 lg:border-r border-border max-h-48 lg:max-h-none overflow-y-auto lg:overflow-visible`}>
+          <div className="lg:hidden p-2 border-b border-border bg-card">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowToolbar(!showToolbar)}
+              className="w-full justify-start"
+            >
+              <Palette className="h-4 w-4 mr-2" />
+              {showToolbar ? 'Hide' : 'Show'} Tools            </Button>
+          </div>
+          
+          <EnhancedToolbar
           toolConfig={toolConfig}
           onToolConfigChange={updateToolConfig}
           layers={layers}
           activeLayerId={activeLayerId}
-          onLayerSelect={setActiveLayerId}
+          onLayerSelect={setActiveLayer}
           onLayerToggleVisibility={handleLayerToggleVisibility}
           onLayerToggleLock={handleLayerToggleLock}
           onLayerAdd={addLayer}
@@ -1691,15 +1913,18 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               // Add validation or clamping for z_index if necessary
               updateLayer(layerId, { z_index: newZIndex });
             }
-          }}
-          onLayerOpacityChange={(layerId: string, opacity: number) => {
+          }}          onLayerOpacityChange={(layerId: string, opacity: number) => {
             if (updateLayer) {
               updateLayer(layerId, { opacity });
             }
           }}
+          onClearCanvas={() => clearCanvas(true)}
           isDarkMode={isDarkMode}
-        />        {/* Main Canvas Area */}
-        <div className="flex-1 relative">          <canvas
+        />
+        </div>
+
+        {/* Main Canvas Area */}
+        <div className="flex-1 relative"><canvas
             ref={canvasRef}            className={`w-full h-full bg-background ${
               toolConfig.tool === 'select' 
                 ? (isRotating 
@@ -1757,14 +1982,23 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               </div>
             </div>
           ))}
-        </div>
-
-        {/* Sidebar */}
-        <div className="w-80 bg-card border-l border-border p-4 overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-4 flex items-center">
-            <Calendar className="h-5 w-5 mr-2" />
-            Travel Plan
-          </h2>
+        </div>        {/* Responsive Sidebar */}
+        <div className={`${showSidebar ? 'block' : 'hidden'} lg:block w-full lg:w-80 bg-card border-l border-border overflow-y-auto absolute lg:relative top-0 right-0 h-full lg:h-auto z-20 lg:z-auto shadow-lg lg:shadow-none`}>
+          <div className="p-3 sm:p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base sm:text-lg font-semibold flex items-center">
+                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                Travel Plan
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSidebar(false)}
+                className="lg:hidden h-8 w-8 p-0"
+              >
+                ×
+              </Button>
+            </div>
           
           <div className="space-y-4">
             {destinations.map((dest) => (
@@ -1796,11 +2030,11 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             )}
           </div>
         </div>
-      </div>      {/* Add Destination Modal */}
+      </div>      {/* Responsive Add Destination Modal */}
       {showAddDestination && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="p-6 w-96 bg-card text-card-foreground">
-            <h3 className="text-lg font-semibold mb-4">Add New Destination</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Add New Destination</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
@@ -1810,13 +2044,14 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 addDestination(name, notes);
               }
             }}>
-              <div className="space-y-4">                <div>
-                  <label className="block text-sm font-medium mb-1 text-foreground">Destination Name</label>
-                  <Input name="name" placeholder="Enter destination name" required />
+              <div className="space-y-3 sm:space-y-4">
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium mb-1 text-foreground">Destination Name</label>
+                  <Input name="name" placeholder="Enter destination name" required className="text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-foreground">Notes (optional)</label>
-                  <Textarea name="notes" placeholder="Add notes about this destination" rows={3} />
+                  <label className="block text-xs sm:text-sm font-medium mb-1 text-foreground">Notes (optional)</label>
+                  <Textarea name="notes" placeholder="Add notes about this destination" rows={3} className="text-sm" />
                 </div>
                 <div className="flex gap-2 pt-2">
                   <Button type="submit" className="flex-1">
@@ -1834,25 +2069,27 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             </form>
           </Card>
         </div>
-      )}      {/* Share Dialog */}
+      )}      {/* Share Dialog */}      {/* Responsive Share Modal */}
       {showShareDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <Card className="p-6 w-96 bg-card text-card-foreground">
-            <h3 className="text-lg font-semibold mb-4">Share Travel Plan</h3>
-            <div className="space-y-4">              <div>
-                <label className="block text-sm font-medium mb-1 text-foreground">Share URL</label>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Share Travel Plan</h3>
+            <div className="space-y-3 sm:space-y-4">
+              <div>
+                <label className="block text-xs sm:text-sm font-medium mb-1 text-foreground">Share URL</label>
                 <div className="flex gap-2">
                   <Input 
                     value={shareUrl} 
                     readOnly 
-                    className="flex-1 bg-muted"
+                    className="flex-1 bg-muted text-xs sm:text-sm"
                   />
                   <Button 
                     variant="outline" 
                     size="sm"
                     onClick={copyToClipboard}
+                    className="px-2 sm:px-3"
                   >
-                    <Copy className="h-4 w-4" />
+                    <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -1865,11 +2102,13 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                   className="flex-1"
                   onClick={() => setShowShareDialog(false)}
                 >
-                  Close
-                </Button>
+                  Close                </Button>
               </div>
-            </div>          </Card>
-        </div>      )}
+            </div>
+          </Card>
+        </div>
+      )}
+      </div>
       </div>
     </div>
   );

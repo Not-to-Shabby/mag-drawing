@@ -70,7 +70,7 @@ export interface Shape {
   id: string;
   plan_id: string;
   layer_id?: string;
-  shape_type: 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'line' | 'text' | 'sticky';
+  shape_type: 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'line' | 'text' | 'sticky-note';
   x_position: number;
   y_position: number;
   width?: number;
@@ -696,11 +696,26 @@ export async function createShape(planToken: string, shapeData: Omit<Shape, 'id'
     // Import validation from input-validator
     const { InputValidator } = await import('./input-validator');
     
-    // Validate shape data
-    const validatedData = InputValidator.shapeSchema.parse({
+    // Map database field names to validation schema field names
+    const frontendShapeData = {
       id: generateUUID(),
-      ...shapeData
-    });
+      type: shapeData.shape_type,
+      x: shapeData.x_position,
+      y: shapeData.y_position,
+      width: shapeData.width,
+      height: shapeData.height,
+      rotation: shapeData.rotation || 0,
+      strokeColor: shapeData.stroke_color,
+      fillColor: shapeData.fill_color,
+      strokeWidth: shapeData.stroke_width || 2,
+      opacity: shapeData.opacity || 1,
+      text: shapeData.text_content,
+      fontSize: shapeData.font_size,
+      fontFamily: shapeData.font_family,
+      zIndex: shapeData.z_index || 0    };
+    
+    // Validate shape data using frontend schema
+    const validatedData = InputValidator.shapeSchema.parse(frontendShapeData);
 
     const { data, error } = await supabase
       .from('shapes')
@@ -980,26 +995,42 @@ export async function initializeDefaultLayers(planUuid: string): Promise<void> {
       return;
     }
 
-    // Check if layers already exist
-    const { data: existingLayers } = await supabase
-      .from('plan_layers')
-      .select('id')
-      .eq('plan_id', planUuid); // Use the provided plan UUID
-
-    if (existingLayers && existingLayers.length > 0) {
-      return; // Layers already exist
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEBUG] initializeDefaultLayers: Starting initialization for plan UUID: ${planUuid}`);
     }
 
-    // Create default layers
+    // Create default layers using upsert to handle concurrent calls
     const defaultLayers = [
       { name: 'Background', z_index: 0, opacity: 1, visible: true, locked: false },
       { name: 'Routes', z_index: 1, opacity: 1, visible: true, locked: false },
       { name: 'Destinations', z_index: 2, opacity: 1, visible: true, locked: false }
     ];
 
-    for (const layer of defaultLayers) {
-      // Pass the planUuid directly to createLayer
-      await createLayer(planUuid, layer); 
+    // Use upsert to insert layers only if they don't exist (handles race conditions)
+    const layersToInsert = defaultLayers.map(layer => ({
+      plan_id: planUuid,
+      name: layer.name,
+      z_index: layer.z_index,
+      opacity: layer.opacity,
+      visible: layer.visible,
+      locked: layer.locked
+    }));
+
+    const { data, error } = await supabase
+      .from('plan_layers')
+      .upsert(layersToInsert, { 
+        onConflict: 'plan_id,z_index',
+        ignoreDuplicates: true // Ignore if layers already exist
+      })
+      .select();
+
+    if (error) {
+      console.error('Error initializing default layers (upsert):', error);
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEBUG] initializeDefaultLayers: Successfully initialized ${data?.length || 0} layers for plan UUID: ${planUuid}`);
     }
   } catch (error) {
     console.error('Error initializing default layers:', error);
@@ -1064,44 +1095,132 @@ export async function createEnhancedDrawing(
   }
 }
 
-export const deleteDrawing = async (id: string) => {
+// Optimized functions that accept plan UUID directly to avoid repeated getPlanByToken calls
+export async function createShapeByUuid(planUuid: string, shapeData: Omit<Shape, 'id' | 'plan_id' | 'created_at' | 'updated_at'>): Promise<Shape | null> {
   try {
-    // Validate and sanitize id
-    if (!id || typeof id !== 'string') {
-      throw new Error('Invalid drawing ID');
+    // Import validation from input-validator
+    const { InputValidator } = await import('./input-validator');
+    
+    // Map database field names to validation schema field names
+    const frontendShapeData = {
+      id: generateUUID(),
+      type: shapeData.shape_type,
+      x: shapeData.x_position,
+      y: shapeData.y_position,
+      width: shapeData.width,
+      height: shapeData.height,
+      rotation: shapeData.rotation || 0,
+      strokeColor: shapeData.stroke_color,
+      fillColor: shapeData.fill_color,
+      strokeWidth: shapeData.stroke_width || 2,
+      opacity: shapeData.opacity || 1,
+      text: shapeData.text_content,
+      fontSize: shapeData.font_size,
+      fontFamily: shapeData.font_family,
+      zIndex: shapeData.z_index || 0
+    };
+    
+    // Validate shape data using frontend schema
+    const validatedData = InputValidator.shapeSchema.parse(frontendShapeData);
+
+    const { data, error } = await supabase
+      .from('shapes')
+      .insert([{
+        plan_id: planUuid, // Use the provided plan UUID directly
+        layer_id: shapeData.layer_id,
+        shape_type: validatedData.type,
+        x_position: validatedData.x,
+        y_position: validatedData.y,
+        width: validatedData.width,
+        height: validatedData.height,
+        rotation: validatedData.rotation,
+        stroke_color: validatedData.strokeColor,
+        fill_color: validatedData.fillColor,
+        stroke_width: validatedData.strokeWidth,
+        opacity: validatedData.opacity,
+        text_content: validatedData.text,
+        font_size: validatedData.fontSize,
+        font_family: validatedData.fontFamily,
+        z_index: validatedData.zIndex
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating shape by UUID:', error);
+      return null;
     }
 
-    const sanitizedId = sanitizeInput(id);
+    return data;
+  } catch (error) {
+    console.error('Error creating shape by UUID:', error);
+    return null;
+  }
+}
 
+export async function deleteAllShapesByUuid(planUuid: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('shapes')
+      .delete()
+      .eq('plan_id', planUuid);
+
+    if (error) {
+      console.error('Error deleting shapes by UUID:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting shapes by UUID:', error);
+    return false;
+  }
+}
+
+export async function createEnhancedDrawingByUuid(planUuid: string, drawingData: Omit<EnhancedDrawing, 'id' | 'plan_id' | 'created_at' | 'updated_at'>): Promise<EnhancedDrawing | null> {
+  try {
+    const { data, error } = await supabase
+      .from('drawings')
+      .insert([{
+        plan_id: planUuid, // Use the provided plan UUID directly
+        path_data: drawingData.path_data,
+        color: drawingData.color,
+        stroke_width: drawingData.stroke_width,
+        layer_id: drawingData.layer_id,
+        opacity: drawingData.opacity,
+        brush_type: drawingData.brush_type,
+        smoothing: drawingData.smoothing
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating enhanced drawing by UUID:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error creating enhanced drawing by UUID:', error);
+    return null;
+  }
+}
+
+export async function deleteAllDrawings(planUuid: string): Promise<boolean> {
+  try {
     const { error } = await supabase
       .from('drawings')
       .delete()
-      .eq('id', sanitizedId);
+      .eq('plan_id', planUuid);
 
-    if (error) throw error;
-  } catch (error) {
-    console.error('Database error:', error);
-    throw error;
-  }
-};
-
-export const deleteAllDrawings = async (plan_id: string) => {
-  try {
-    // Validate and sanitize plan_id
-    if (!plan_id || typeof plan_id !== 'string') {
-      throw new Error('Invalid plan ID');
+    if (error) {
+      console.error('Error deleting all drawings:', error);
+      return false;
     }
 
-    const sanitizedPlanId = sanitizeInput(plan_id);
-
-    const { error } = await supabase
-      .from('drawings')
-      .delete()
-      .eq('plan_id', sanitizedPlanId);
-
-    if (error) throw error;
+    return true;
   } catch (error) {
-    console.error('Database error deleting all drawings:', error);
-    throw error;
+    console.error('Error deleting all drawings:', error);
+    return false;
   }
-};
+}

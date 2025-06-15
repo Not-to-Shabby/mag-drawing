@@ -42,6 +42,7 @@ interface EnhancedToolbarProps {
   onLayerRemove: (layerId: string) => void;
   onLayerMove: (layerId: string, direction: 'up' | 'down') => void;
   onLayerOpacityChange: (layerId: string, opacity: number) => void;
+  onClearCanvas: () => void;
   isDarkMode?: boolean;
 }
 
@@ -57,6 +58,7 @@ export function EnhancedToolbar({
   onLayerRemove,
   onLayerMove,
   onLayerOpacityChange,
+  onClearCanvas,
   isDarkMode = true // eslint-disable-line @typescript-eslint/no-unused-vars
 }: EnhancedToolbarProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -68,19 +70,18 @@ export function EnhancedToolbar({
     '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
     '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6b7280',
     '#000000', '#ffffff', '#dc2626', '#059669', '#7c3aed'
-  ];
-  // Drawing tools configuration
+  ];  // Drawing tools configuration
   const drawingTools: Array<{ tool: DrawingTool; icon: React.ReactNode; label: string }> = [
-    { tool: 'select', icon: <MousePointer size={16} />, label: 'Select' },
-    { tool: 'pen', icon: <Pen size={16} />, label: 'Pen' },
-    { tool: 'line', icon: <Minus size={16} />, label: 'Line' },
-    { tool: 'rectangle', icon: <Square size={16} />, label: 'Rectangle' },
-    { tool: 'circle', icon: <Circle size={16} />, label: 'Circle' },
-    { tool: 'triangle', icon: <Triangle size={16} />, label: 'Triangle' },
-    { tool: 'arrow', icon: <ArrowRight size={16} />, label: 'Arrow' },
-    { tool: 'text', icon: <Type size={16} />, label: 'Text' },
-    { tool: 'sticky-note', icon: <StickyNote size={16} />, label: 'Sticky Note' },
-    { tool: 'eraser', icon: <Eraser size={16} />, label: 'Eraser' }
+    { tool: 'select', icon: <MousePointer size={18} />, label: 'Select' },
+    { tool: 'pen', icon: <Pen size={18} />, label: 'Pen' },
+    { tool: 'line', icon: <Minus size={18} />, label: 'Line' },
+    { tool: 'rectangle', icon: <Square size={18} />, label: 'Rectangle' },
+    { tool: 'circle', icon: <Circle size={18} />, label: 'Circle' },
+    { tool: 'triangle', icon: <Triangle size={18} />, label: 'Triangle' },
+    { tool: 'arrow', icon: <ArrowRight size={18} />, label: 'Arrow' },
+    { tool: 'text', icon: <Type size={18} />, label: 'Text' },
+    { tool: 'sticky-note', icon: <StickyNote size={18} />, label: 'Sticky Note' },
+    { tool: 'eraser', icon: <Eraser size={18} />, label: 'Eraser' }
   ];
 
   // Brush types configuration
@@ -97,53 +98,65 @@ export function EnhancedToolbar({
       setNewLayerName('');
     }
   };
-
   const sortedLayers = [...layers].sort((a, b) => b.z_index - a.z_index);
-
   return (
-    <div className="flex flex-col space-y-4 p-4 bg-background border-r border-border w-80 h-full overflow-y-auto">
+    <div className="flex flex-col space-y-4 p-3 sm:p-4 bg-background border-r border-border w-full h-full overflow-y-auto">
       {/* Drawing Tools Section */}
-      <Card className="p-4">
-        <h3 className="text-sm font-medium mb-3">Drawing Tools</h3>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {drawingTools.map(({ tool, icon, label }) => (
-            <Button
+      <Card className="p-3 sm:p-4 shadow-sm">
+        <h3 className="text-sm font-medium mb-3 text-foreground">Drawing Tools</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
+          {drawingTools.map(({ tool, icon, label }) => (            <Button
               key={tool}
               variant={toolConfig.tool === tool ? "default" : "outline"}
-              size="sm"
+              size="default"
               onClick={() => onToolConfigChange({ tool })}
-              className="flex flex-col items-center gap-1 h-12"
+              className="flex flex-col items-center gap-2 h-16 sm:h-18 p-2 hover:scale-105 transition-all duration-200 text-center"
               title={label}
             >
-              {icon}
-              <span className="text-xs">{label}</span>
-            </Button>
-          ))}
+              <div className="flex-shrink-0 text-current">
+                {icon}
+              </div>
+              <span className="text-xs font-medium truncate leading-tight w-full">{label}</span>
+            </Button>          ))}
+        </div>
+
+        {/* Clear Canvas Button */}
+        <div className="mb-4">
+          <Button
+            variant="destructive"
+            size="default"
+            onClick={onClearCanvas}
+            className="w-full hover:scale-105 transition-all duration-200"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Canvas
+          </Button>
         </div>
 
         {/* Brush Type Selection */}
         {toolConfig.tool === 'pen' && (
           <div className="mb-4">
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">Brush Type</label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="text-sm font-medium text-foreground mb-3 block">Brush Type</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {brushTypes.map(({ type, icon, label }) => (
                 <Button
                   key={type}
                   variant={toolConfig.brushType === type ? "default" : "outline"}
-                  size="sm"
+                  size="default"
                   onClick={() => onToolConfigChange({ brushType: type })}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 h-10 justify-start hover:scale-105 transition-all duration-200"
                 >
-                  {icon}
-                  <span className="text-xs">{label}</span>
+                  <div className="flex-shrink-0 text-current">
+                    {icon}
+                  </div>
+                  <span className="text-sm font-medium">{label}</span>
                 </Button>
               ))}
             </div>
           </div>
-        )}
-
-        {/* Brush Size */}        <div className="mb-4">
-          <label className="text-xs font-medium text-muted-foreground mb-2 block">
+        )}        {/* Brush Size */}
+        <div className="mb-4">
+          <label className="text-sm font-medium text-foreground mb-3 block">
             Size: {toolConfig.brushSize}px
           </label>
           <Slider
@@ -156,8 +169,9 @@ export function EnhancedToolbar({
           />
         </div>
 
-        {/* Opacity */}        <div className="mb-4">
-          <label className="text-xs font-medium text-muted-foreground mb-2 block">
+        {/* Opacity */}
+        <div className="mb-4">
+          <label className="text-sm font-medium text-foreground mb-3 block">
             Opacity: {Math.round(toolConfig.opacity * 100)}%
           </label>
           <Slider
@@ -170,11 +184,12 @@ export function EnhancedToolbar({
           />
         </div>
 
-        {/* Color Selection */}        <div className="mb-4">
-          <label className="text-xs font-medium text-muted-foreground mb-2 block">Stroke Color</label>
-          <div className="flex items-center gap-2 mb-2">
+        {/* Color Selection */}
+        <div className="mb-4">
+          <label className="text-sm font-medium text-foreground mb-3 block">Stroke Color</label>
+          <div className="flex items-center gap-3 mb-3">
             <div
-              className="w-8 h-8 rounded border-2 border-border cursor-pointer"
+              className="w-10 h-10 rounded-md border-2 border-border cursor-pointer hover:scale-110 transition-transform"
               style={{ backgroundColor: toolConfig.strokeColor }}
               onClick={() => setShowColorPicker(!showColorPicker)}
             />
@@ -187,16 +202,16 @@ export function EnhancedToolbar({
                   onToolConfigChange({ strokeColor: value });
                 }
               }}
-              className="flex-1 text-xs"
+              className="flex-1 h-10"
               placeholder="#3b82f6"
             />
-          </div>
-          
+          </div>          
           {showColorPicker && (
-            <div className="grid grid-cols-5 gap-1 mb-2">              {predefinedColors.map((color) => (
+            <div className="grid grid-cols-5 gap-2 p-3 bg-muted/50 rounded-md">
+              {predefinedColors.map((color) => (
                 <div
                   key={color}
-                  className="w-6 h-6 rounded cursor-pointer border border-border hover:scale-110 transition-transform"
+                  className="w-8 h-8 rounded-md cursor-pointer border-2 border-border hover:scale-110 transition-transform hover:border-ring"
                   style={{ backgroundColor: color }}
                   onClick={() => {
                     onToolConfigChange({ strokeColor: color });
@@ -209,36 +224,38 @@ export function EnhancedToolbar({
         </div>
 
         {/* Fill Color for Shapes */}
-        {['rectangle', 'circle', 'ellipse', 'triangle'].includes(toolConfig.tool) && (          <div className="mb-4">
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">Fill Color</label>
-            <div className="flex items-center gap-2">
+        {['rectangle', 'circle', 'ellipse', 'triangle'].includes(toolConfig.tool) && (
+          <div className="mb-4">
+            <label className="text-sm font-medium text-foreground mb-3 block">Fill Color</label>
+            <div className="flex items-center gap-3">
               <Button
                 variant={toolConfig.fillColor ? "default" : "outline"}
-                size="sm"
+                size="default"
                 onClick={() => onToolConfigChange({ fillColor: toolConfig.fillColor ? undefined : toolConfig.strokeColor })}
+                className="hover:scale-105 transition-all duration-200"
               >
                 {toolConfig.fillColor ? 'Remove Fill' : 'Add Fill'}
               </Button>
               {toolConfig.fillColor && (
                 <div
-                  className="w-6 h-6 rounded border border-border cursor-pointer"
+                  className="w-8 h-8 rounded-md border-2 border-border cursor-pointer hover:scale-110 transition-transform"
                   style={{ backgroundColor: toolConfig.fillColor }}
                   onClick={() => setShowColorPicker(!showColorPicker)}
                 />
               )}
             </div>
           </div>
-        )}
-      </Card>
+        )}      </Card>
 
       {/* Layers Section */}
-      <Card className="p-4">
+      <Card className="p-3 sm:p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium">Layers</h3>
+          <h3 className="text-sm font-medium text-foreground">Layers</h3>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowLayerPanel(!showLayerPanel)}
+            className="hover:scale-105 transition-all duration-200"
           >
             {showLayerPanel ? 'Hide' : 'Show'}
           </Button>

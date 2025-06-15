@@ -122,11 +122,10 @@ export const InputValidator = {
       return { valid: false, errors: ['Validation failed'] };
     }
   },
-
   // Enhanced shape validation schema for Phase 1 implementation
   shapeSchema: z.object({
     id: z.string().uuid(),
-    type: z.enum(['rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'line', 'text', 'sticky']),
+    type: z.enum(['rectangle', 'circle', 'ellipse', 'triangle', 'arrow', 'line', 'text', 'sticky-note']),
     x: z.number().min(-1000).max(20000),
     y: z.number().min(-1000).max(20000),
     width: z.number().min(1).max(5000).optional(),
@@ -134,7 +133,7 @@ export const InputValidator = {
     rotation: z.number().min(-360).max(360).default(0),
     strokeColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
     fillColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-    strokeWidth: z.number().min(1).max(20).default(2),
+    strokeWidth: z.number().min(1).max(50).default(2),
     text: z.string().max(500).regex(/^[a-zA-Z0-9\s\-_.,!?\n\r()[\]]*$/).optional(),
     fontSize: z.number().min(8).max(72).default(16).optional(),
     fontFamily: z.enum(['Inter', 'Roboto', 'Arial', 'Georgia']).default('Inter').optional(),

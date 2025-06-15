@@ -286,21 +286,23 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    
-    // Debug logging to see what's being sent
+      // Debug logging to see what's being sent
     if (process.env.NODE_ENV === 'development') {
       console.log('PUT /api/plans - Raw request body:', {
         token: body.token,
         drawingsCount: body.drawings?.length,
+        shapesCount: body.shapes?.length,
         firstDrawing: body.drawings?.[0] ? {
           keys: Object.keys(body.drawings[0]),
           sample: body.drawings[0]
-        } : 'No drawings'
+        } : 'No drawings',
+        firstShape: body.shapes?.[0] ? {
+          keys: Object.keys(body.shapes[0]),
+          sample: body.shapes[0]
+        } : 'No shapes'
       });
-    }
-    
-    // Import database functions here to avoid issues
-    const { getPlanByToken, deleteAllDrawings, createEnhancedDrawing } = await import('../../../lib/database');
+    }    // Import database functions here to avoid issues
+    const { getPlanByToken, deleteAllDrawings, createEnhancedDrawingByUuid, createShapeByUuid } = await import('../../../lib/database');
     
     // Validate request - updated to include enhanced fields with more flexible validation
     const requestSchema = z.object({
@@ -316,7 +318,24 @@ export async function PUT(request: NextRequest) {
         opacity: z.number().optional().nullable(),
         brush_type: z.string().optional().nullable(),
         smoothing: z.number().optional().nullable()
-      }))
+      })).optional(),      shapes: z.array(z.object({
+        id: z.string(),
+        type: z.string(),
+        x: z.number(),
+        y: z.number(),
+        width: z.number().optional().nullable(),
+        height: z.number().optional().nullable(),
+        rotation: z.number(),
+        strokeColor: z.string(),
+        fillColor: z.string().optional().nullable(),
+        strokeWidth: z.number(),
+        opacity: z.number(),
+        text: z.string().optional().nullable(),
+        fontSize: z.number().optional().nullable(),
+        fontFamily: z.string().optional().nullable(),
+        zIndex: z.number(),
+        layer_id: z.string().optional().nullable()
+      })).optional()
     });
     
     let validatedData;
@@ -331,13 +350,13 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
-    
-    // Debug logging
+      // Debug logging
     if (process.env.NODE_ENV === 'development') {
-      console.log('Received enhanced drawing save request:', {
+      console.log('Received enhanced drawing/shape save request:', {
         token: validatedData.token,
-        drawingCount: validatedData.drawings.length,
-        firstDrawing: validatedData.drawings[0] ? {
+        drawingCount: validatedData.drawings?.length || 0,
+        shapeCount: validatedData.shapes?.length || 0,
+        firstDrawing: validatedData.drawings?.[0] ? {
           pointCount: validatedData.drawings[0].path_data.length,
           color: validatedData.drawings[0].color,
           strokeWidth: validatedData.drawings[0].stroke_width,
@@ -346,6 +365,12 @@ export async function PUT(request: NextRequest) {
           brushType: validatedData.drawings[0].brush_type,
           smoothing: validatedData.drawings[0].smoothing,
           firstPoint: validatedData.drawings[0].path_data[0]
+        } : null,
+        firstShape: validatedData.shapes?.[0] ? {
+          id: validatedData.shapes[0].id,
+          type: validatedData.shapes[0].type,
+          x: validatedData.shapes[0].x,
+          y: validatedData.shapes[0].y
         } : null
       });
     }
@@ -358,20 +383,52 @@ export async function PUT(request: NextRequest) {
         { status: 404 }
       );
     }
-    
-    // Clear existing drawings and save new ones with enhanced properties
-    await deleteAllDrawings(plan.id);
-    
-    for (const drawing of validatedData.drawings) {
-      await createEnhancedDrawing(validatedData.token, {
-        path_data: drawing.path_data,
-        color: drawing.color,
-        stroke_width: drawing.stroke_width,
-        layer_id: drawing.layer_id || undefined,
-        opacity: drawing.opacity || undefined,
-        brush_type: drawing.brush_type || undefined,
-        smoothing: drawing.smoothing || undefined
-      });
+      // Handle drawings if provided
+    if (validatedData.drawings) {
+      // Clear existing drawings and save new ones with enhanced properties
+      await deleteAllDrawings(plan.id);
+      
+      for (const drawing of validatedData.drawings) {        await createEnhancedDrawingByUuid(plan.id, {
+          path_data: drawing.path_data,
+          color: drawing.color,
+          stroke_width: drawing.stroke_width,
+          layer_id: drawing.layer_id || undefined,
+          opacity: drawing.opacity || 1,
+          brush_type: (drawing.brush_type as 'pen' | 'marker' | 'highlighter' | 'eraser') || 'pen',  
+          smoothing: drawing.smoothing || 0.5
+        });
+      }
+    }
+
+    // Handle shapes if provided
+    if (validatedData.shapes) {
+      // Import shape management functions  
+      const { deleteAllShapesByUuid } = await import('../../../lib/database');
+      
+      // Clear existing shapes and save new ones
+      await deleteAllShapesByUuid(plan.id);
+
+      for (const shape of validatedData.shapes) {
+        const shapeDataForDB = {
+          layer_id: shape.layer_id || undefined,
+          shape_type: shape.type as 'rectangle' | 'circle' | 'ellipse' | 'triangle' | 'arrow' | 'line' | 'text' | 'sticky-note',
+          x_position: shape.x,
+          y_position: shape.y,
+          width: shape.width || undefined,
+          height: shape.height || undefined,
+          rotation: shape.rotation,
+          stroke_color: shape.strokeColor,
+          fill_color: shape.fillColor || undefined,
+          stroke_width: shape.strokeWidth,
+          opacity: shape.opacity,
+          text_content: shape.text || undefined,
+          font_size: shape.fontSize || undefined,
+          font_family: shape.fontFamily || undefined,
+          z_index: shape.zIndex
+        };
+        
+        await createShapeByUuid(plan.id, shapeDataForDB);
+      }
     }
     
     return NextResponse.json({ success: true });
@@ -406,11 +463,11 @@ export async function GET(request: NextRequest) {
           }
         }
       );
-    }
-
-    const { searchParams } = new URL(request.url);
+    }    const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
     const loadDrawings = searchParams.get('drawings') === 'true';
+    const loadShapes = searchParams.get('shapes') === 'true';
+    const loadBoth = searchParams.get('all') === 'true'; // New parameter for optimized loading
     
     if (!token) {
       return NextResponse.json(
@@ -418,8 +475,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-      // Import database functions here to avoid issues
-    const { getPlanByToken, getEnhancedDrawings } = await import('../../../lib/database');
+
+    // Import database functions here to avoid issues
+    const { getPlanByToken, getEnhancedDrawings, getShapes } = await import('../../../lib/database');
     
     // Get plan by token
     const plan = await getPlanByToken(token);
@@ -429,10 +487,25 @@ export async function GET(request: NextRequest) {
         { status: 404 }
       );
     }
-      if (loadDrawings) {
+
+    // Optimized: Load both drawings and shapes in parallel with a single API call
+    if (loadBoth) {
+      const [drawings, shapes] = await Promise.all([
+        getEnhancedDrawings(plan.id),
+        getShapes(token)
+      ]);
+      return NextResponse.json({
+        drawings: drawings || [],
+        shapes: shapes || []
+      });
+    } else if (loadDrawings) {
       // Return enhanced drawings for this plan
       const drawings = await getEnhancedDrawings(plan.id);
       return NextResponse.json(drawings || []);
+    } else if (loadShapes) {
+      // Return shapes for this plan
+      const shapes = await getShapes(token);
+      return NextResponse.json(shapes || []);
     } else {
       // Return plan details
       return NextResponse.json(plan);

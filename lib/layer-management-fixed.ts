@@ -159,10 +159,9 @@ export function useLayerManagement(planToken: string | null, planUuidFromProps: 
     }
 
     const nameSchema = z.string().min(1).max(50).regex(/^[a-zA-Z0-9\s\-_]+$/);
-    let validatedName;
-    try {
-      validatedName = nameSchema.parse(name);    } catch (err) {
-      console.error('Error validating layer name:', err);
+    let validatedName;    try {
+      validatedName = nameSchema.parse(name);
+    } catch {
       setError('Layer name must be 1-50 characters and contain only letters, numbers, spaces, hyphens, and underscores');
       return false;
     }
@@ -213,8 +212,7 @@ export function useLayerManagement(planToken: string | null, planUuidFromProps: 
     }    // Validate updates
     try {
       layerUpdateSchema.parse(updates);
-    } catch (err) {
-      console.error('Error validating layer update:', err);
+    } catch {
       setError('Invalid layer update data');
       return false;
     }
@@ -231,8 +229,9 @@ export function useLayerManagement(planToken: string | null, planUuidFromProps: 
         return true;
       }
       
-      return false;    } catch (err) {
-      console.error('Error updating layer:', err);
+      return false;
+    } catch (error) {
+      console.error('Error updating layer:', error);
       setError('Failed to update layer');
       return false;
     }
@@ -267,8 +266,9 @@ export function useLayerManagement(planToken: string | null, planUuidFromProps: 
         return true;
       }
       
-      return false;    } catch (err) {
-      console.error('Error deleting layer:', err);
+      return false;
+    } catch (error) {
+      console.error('Error deleting layer:', error);
       setError('Failed to delete layer');
       return false;
     }
