@@ -198,7 +198,11 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   const [isClearingCanvas, setIsClearingCanvas] = useState(false); // Prevent auto-save during clear
   const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
   const [showSidebar, setShowSidebar] = useState(false); // Mobile sidebar toggle
-  const [showToolbar, setShowToolbar] = useState(false); // Mobile toolbar toggle
+  const [showToolbar, setShowToolbar] = useState(true); // Mobile toolbar toggle - visible by default
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false); // Toolbar collapse state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Sidebar collapse state
+  const [buttonSize, setButtonSize] = useState<'small' | 'medium' | 'large'>('medium'); // Button size setting
+  const [showSettings, setShowSettings] = useState(false); // Settings dropdown
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/plan/${token}` : '';
 
   // Resize handle utilities
@@ -694,6 +698,21 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+  
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showSettings && !target.closest('.settings-dropdown')) {
+        setShowSettings(false);
+      }
+    };
+    
+    if (showSettings) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSettings]);
 
   // Complete text editing when tool changes
   useEffect(() => {
@@ -2180,11 +2199,42 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
     if (savedAutoSavePreference !== null) {
       setAutoSaveEnabled(JSON.parse(savedAutoSavePreference));
     }
+    
+    const savedButtonSize = localStorage.getItem('button-size');
+    if (savedButtonSize && ['small', 'medium', 'large'].includes(savedButtonSize)) {
+      setButtonSize(savedButtonSize as 'small' | 'medium' | 'large');
+    }
+    
+    const savedToolbarCollapsed = localStorage.getItem('toolbar-collapsed');
+    if (savedToolbarCollapsed !== null) {
+      setToolbarCollapsed(JSON.parse(savedToolbarCollapsed));
+    }
+    
+    const savedSidebarCollapsed = localStorage.getItem('sidebar-collapsed');
+    if (savedSidebarCollapsed !== null) {
+      setSidebarCollapsed(JSON.parse(savedSidebarCollapsed));
+    }
   }, []);
 
   // Save autosave preference to localStorage when it changes
   useEffect(() => {
-    localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));  }, [autoSaveEnabled]);
+    localStorage.setItem('autosave-enabled', JSON.stringify(autoSaveEnabled));
+  }, [autoSaveEnabled]);
+  
+  // Save button size preference to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('button-size', buttonSize);
+  }, [buttonSize]);
+  
+  // Save toolbar collapse state to localStorage
+  useEffect(() => {
+    localStorage.setItem('toolbar-collapsed', JSON.stringify(toolbarCollapsed));
+  }, [toolbarCollapsed]);
+  
+  // Save sidebar collapse state to localStorage
+  useEffect(() => {
+    localStorage.setItem('sidebar-collapsed', JSON.stringify(sidebarCollapsed));
+  }, [sidebarCollapsed]);
   // Auto-save content when drawings or shapes change
   useEffect(() => {
     if (planExists && autoSaveEnabled && !isClearingCanvas && (drawings.length > 0 || shapes.length > 0)) {
@@ -2198,7 +2248,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   // Show loading state
   if (isLoading) {
     return (
-      <div className={`h-screen w-full flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
+      <div className={`h-screen h-[100dvh] w-full flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
         <div className="bg-background text-foreground text-center">
           <h2 className="text-xl font-semibold text-foreground mb-2">Loading Travel Plan...</h2>
           <p className="text-muted-foreground">Token: {token}</p>
@@ -2208,8 +2258,8 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
   }
 
   return (
-    <div className={`h-screen w-full flex flex-col ${isDarkMode ? 'dark' : ''}`}>
-      <div className="bg-background text-foreground h-full">        {/* Header */}
+    <div className={`h-screen h-[100dvh] w-full flex flex-col ${isDarkMode ? 'dark' : ''}`}>
+      <div className="bg-background text-foreground h-full overflow-hidden flex flex-col">        {/* Header */}
         <div className="bg-card border-b border-border p-2 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
             <div className="flex-shrink-0">
@@ -2268,20 +2318,79 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 <span className="sm:hidden">Auto</span>
               </label>
             </div>
-              {/* Dark Mode Toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsDarkMode(!setIsDarkMode)}
-              className="h-8 w-8 p-0 hover:scale-105 transition-all duration-200"
-              title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {isDarkMode ? (
-                <Sun className="h-4 w-4 text-foreground" />
-              ) : (
-                <Moon className="h-4 w-4 text-foreground" />
+              {/* Settings Dropdown */}
+            <div className="relative settings-dropdown">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSettings(!showSettings)}
+                className="h-8 w-8 p-0 hover:scale-105 transition-all duration-200"
+                title="Settings"
+              >
+                <svg className="h-4 w-4 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </Button>
+              
+              {showSettings && (
+                <div className="absolute top-full right-0 mt-2 w-64 bg-card border border-border rounded-xl shadow-lg z-50 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="space-y-4">
+                    <div className="pb-2 border-b border-border">
+                      <h3 className="text-sm font-semibold text-foreground">Settings</h3>
+                    </div>
+                    
+                    {/* Dark Mode Toggle */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-foreground">Dark Mode</label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsDarkMode(!isDarkMode)}
+                        className="h-8 w-8 p-0 hover:scale-105 transition-all duration-200"
+                      >
+                        {isDarkMode ? (
+                          <Sun className="h-4 w-4 text-foreground" />
+                        ) : (
+                          <Moon className="h-4 w-4 text-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                    
+                    {/* Button Size Setting */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Button Size</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Button
+                          variant={buttonSize === 'small' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setButtonSize('small')}
+                          className="text-xs"
+                        >
+                          Small
+                        </Button>
+                        <Button
+                          variant={buttonSize === 'medium' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setButtonSize('medium')}
+                          className="text-xs"
+                        >
+                          Medium
+                        </Button>
+                        <Button
+                          variant={buttonSize === 'large' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setButtonSize('large')}
+                          className="text-xs"
+                        >
+                          Large
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
-            </Button>
+            </div>
           
           <Button
             variant="outline"
@@ -2349,34 +2458,55 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
             </Button>
           </div>
         </div>
-      </div>      <div className="flex-1 flex flex-col lg:flex-row relative">
-        {/* Mobile Toggle Button for Sidebar */}
-        <div className="lg:hidden p-2 border-b border-border bg-card">
+      </div>      <div className="flex-1 flex flex-col lg:flex-row relative min-h-0">
+        {/* Mobile Toggle Buttons for both Sidebar and Toolbar */}
+        <div className="lg:hidden p-2 border-b border-border bg-card flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowToolbar(!showToolbar)}
+            className="flex-1 justify-start"
+          >
+            <Palette className="h-4 w-4 mr-2" />
+            {showToolbar ? 'Hide' : 'Show'} Tools
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowSidebar(!showSidebar)}
-            className="w-full justify-start"
+            className="flex-1 justify-start"
           >
             <Calendar className="h-4 w-4 mr-2" />
             {showSidebar ? 'Hide' : 'Show'} Travel Plan
           </Button>
         </div>
 
-        {/* Enhanced Toolbar - Collapsible on mobile */}
-        <div className={`${showToolbar ? 'block' : 'hidden'} lg:block w-full lg:w-80 bg-background border-b lg:border-b-0 lg:border-r border-border max-h-48 lg:max-h-none overflow-y-auto lg:overflow-visible`}>
-          <div className="lg:hidden p-2 border-b border-border bg-card">
+        {/* Enhanced Toolbar - Collapsible */}
+        <div className={`${showToolbar ? 'block' : 'hidden'} lg:block ${toolbarCollapsed ? 'lg:w-12' : 'lg:w-80'} w-full bg-background border-b lg:border-b-0 lg:border-r border-border max-h-64 lg:max-h-none overflow-y-auto lg:overflow-y-visible flex-shrink-0 scroll-smooth transition-all duration-300`}>
+          {/* Collapse/Expand Button for Desktop */}
+          <div className="hidden lg:flex items-center justify-center p-2 border-b border-border bg-background sticky top-0 z-10">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={() => setShowToolbar(!showToolbar)}
-              className="w-full justify-start"
+              onClick={() => setToolbarCollapsed(!toolbarCollapsed)}
+              className="h-8 w-8 p-0 hover:scale-110 transition-all duration-200"
+              title={toolbarCollapsed ? "Expand toolbar" : "Collapse toolbar"}
             >
-              <Palette className="h-4 w-4 mr-2" />
-              {showToolbar ? 'Hide' : 'Show'} Tools            </Button>
+              {toolbarCollapsed ? (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              )}
+            </Button>
           </div>
           
-          <EnhancedToolbar
+          {!toolbarCollapsed && (
+            <div className="animate-in fade-in duration-200">
+              <EnhancedToolbar
           toolConfig={toolConfig}
           onToolConfigChange={updateToolConfig}
           layers={layers}
@@ -2386,6 +2516,7 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           onLayerToggleLock={handleLayerToggleLock}
           onLayerAdd={addLayer}
           onLayerRemove={deleteLayer} // Changed to deleteLayer
+          buttonSize={buttonSize}
           onLayerMove={(layerId: string, direction: 'up' | 'down') => {
             const layer = layers.find(l => l.id === layerId);
             if (layer && updateLayer) {
@@ -2401,12 +2532,14 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
           onClearCanvas={() => clearCanvas(true)}
           isDarkMode={isDarkMode}
         />
+            </div>
+          )}
         </div>
 
         {/* Main Canvas Area */}
-        <div className="flex-1 relative"><canvas
+        <div className="flex-1 relative min-h-0 min-w-0 overflow-hidden"><canvas
             ref={canvasRef}
-            className={`w-full h-full bg-background ${
+            className={`w-full h-full bg-background touch-none ${
               toolConfig.tool === 'select' 
                 ? (isRotating 
                   ? 'cursor-grab'
@@ -2419,10 +2552,44 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
                 : toolConfig.tool === 'eraser'
                 ? 'cursor-crosshair'
                 : 'cursor-crosshair'
-            }`}onMouseDown={handleCanvasMouseDown}
+            }`}
+            onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}            onDoubleClick={handleCanvasDoubleClick}
+            onMouseLeave={handleCanvasMouseUp}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              const touch = e.touches[0];
+              if (touch && canvasRef.current) {
+                const fakeMouseEvent = {
+                  clientX: touch.clientX,
+                  clientY: touch.clientY,
+                  preventDefault: () => {},
+                  stopPropagation: () => {},
+                  currentTarget: canvasRef.current,
+                } as unknown as React.MouseEvent<HTMLCanvasElement>;
+                handleCanvasMouseDown(fakeMouseEvent);
+              }
+            }}
+            onTouchMove={(e) => {
+              e.preventDefault();
+              const touch = e.touches[0];
+              if (touch && canvasRef.current) {
+                const fakeMouseEvent = {
+                  clientX: touch.clientX,
+                  clientY: touch.clientY,
+                  preventDefault: () => {},
+                  stopPropagation: () => {},
+                  currentTarget: canvasRef.current,
+                } as unknown as React.MouseEvent<HTMLCanvasElement>;
+                handleCanvasMouseMove(fakeMouseEvent);
+              }
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleCanvasMouseUp();
+            }}
+            onDoubleClick={handleCanvasDoubleClick}
           />
           {/* DOM overlay text editor */}
           {isInlineEditing && isDomTextEditing && editingShape && (
@@ -2520,9 +2687,31 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               </div>
             </div>
           ))}
-        </div>        {/* Responsive Sidebar */}
-        <div className={`${showSidebar ? 'block' : 'hidden'} lg:block w-full lg:w-80 bg-card border-l border-border overflow-y-auto absolute lg:relative top-0 right-0 h-full lg:h-auto z-20 lg:z-auto shadow-lg lg:shadow-none`}>
-          <div className="p-3 sm:p-4">
+        </div>        {/* Responsive Sidebar - Collapsible */}
+        <div className={`${showSidebar ? 'block' : 'hidden'} lg:block ${sidebarCollapsed ? 'lg:w-12' : 'lg:w-80'} w-full bg-card border-l border-border overflow-y-auto absolute lg:relative top-0 right-0 h-full lg:h-auto z-20 lg:z-auto shadow-lg lg:shadow-none flex-shrink-0 transition-all duration-300 ${showSidebar ? 'animate-in slide-in-from-right duration-300' : ''}`}>
+          {/* Collapse/Expand Button for Desktop */}
+          <div className="hidden lg:flex items-center justify-center p-2 border-b border-border bg-card sticky top-0 z-10">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="h-8 w-8 p-0 hover:scale-110 transition-all duration-200"
+              title={sidebarCollapsed ? "Expand travel plan" : "Collapse travel plan"}
+            >
+              {sidebarCollapsed ? (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              )}
+            </Button>
+          </div>
+          
+          {!sidebarCollapsed && (
+            <div className="p-3 sm:p-4 animate-in fade-in duration-200">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base sm:text-lg font-semibold flex items-center">
                 <Calendar className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
@@ -2568,12 +2757,14 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
               </div>
             )}
           </div>
+            </div>
+          )}
         </div>
       </div>
       {/* Responsive Add Destination Modal */}
       {showAddDestination && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-300">
             <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Add New Destination</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
@@ -2614,8 +2805,8 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
       {/* Share Dialog */}
       {/* Responsive Share Modal */}
       {showShareDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <Card className="p-4 sm:p-6 w-full max-w-md bg-card text-card-foreground animate-in fade-in zoom-in-95 duration-300">
             <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Share Travel Plan</h3>
             <div className="space-y-3 sm:space-y-4">
               <div>
@@ -2653,9 +2844,9 @@ const WhiteboardPlanner = ({ token }: WhiteboardPlannerProps) => {
         </div>
       )}
       </div>
-      </div>
     </div>
   );
 };
 
 export default WhiteboardPlanner;
+

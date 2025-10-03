@@ -10,7 +10,7 @@ export default async function PlanPage({ params }: PlanPageProps) {
   const { token } = await params;
   
   return (
-    <main className="h-screen w-full overflow-hidden">
+    <main className="h-screen h-[100dvh] w-full overflow-hidden">
       <WhiteboardPlanner token={token} />
     </main>
   );
